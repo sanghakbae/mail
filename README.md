@@ -5,7 +5,7 @@
 - 수신: Cloudflare Email Routing catch-all → Worker `email()` 핸들러 → MIME 파싱 → Firestore + R2 저장
 - 발송: 웹메일 → Worker `/api/send` → Cloudflare Email Sending 바인딩
 - UI: GitHub Pages (`mail.sanghak.kr`), 아이디/비밀번호 로그인
-- API: Cloudflare Worker (`api.sanghak.kr`)
+- API: Cloudflare Worker (`mail-api.sanghak.kr`)
 - DB: Firestore (메시지·메일함·계정), R2 (원본 MIME·첨부파일 바이트)
 
 ```
@@ -16,7 +16,7 @@
                                   ↓ email()
   mail.sanghak.kr          ┌──────────────┐        ┌───────────┐
   (GitHub Pages) ─fetch──→ │    Worker    │ ─────→ │ Firestore │
-   웹메일 UI               │ api.sanghak.kr│        └───────────┘
+   웹메일 UI               │ mail-api.sanghak.kr│        └───────────┘
                            └──────┬───────┘        ┌───────────┐
                                   ├──────────────→ │    R2     │
                                   ↓ send_email     └───────────┘
@@ -92,12 +92,12 @@ wrangler r2 bucket create sanghak-mail-blobs
 wrangler deploy
 ```
 
-`api.sanghak.kr` 커스텀 도메인이 자동으로 붙는다.
+`mail-api.sanghak.kr` 커스텀 도메인이 자동으로 붙는다.
 
 ### 6. 최초 관리자 계정 만들기
 
 ```bash
-curl -X POST https://api.sanghak.kr/api/setup \
+curl -X POST https://mail-api.sanghak.kr/api/setup \
   -H "x-setup-token: $SETUP_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"id":"admin","password":"충분히-긴-비밀번호","display_name":"배상학"}'

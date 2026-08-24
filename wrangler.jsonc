@@ -6,9 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
-  // API 는 api.sanghak.kr 에서 서빙한다. UI 는 GitHub Pages(mail.sanghak.kr).
+  // API 는 mail-api.sanghak.kr 에서 서빙한다. UI 는 GitHub Pages(mail.sanghak.kr).
   "routes": [
-    { "pattern": "api.sanghak.kr", "custom_domain": true }
+    { "pattern": "mail-api.sanghak.kr", "custom_domain": true }
   ],
 
   // 발송: sanghak.kr 의 모든 주소에서 보낼 수 있게 열어둔다
