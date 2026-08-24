@@ -266,9 +266,19 @@ function renderBulkbar() {
   }
 }
 
+function renderListHeader() {
+  const folder = FOLDERS.find((f) => f.key === state.folder);
+  $("#list-title").textContent = folder ? folder.label : state.folder;
+  const scope = state.mailbox || "전체 주소";
+  const unread = state.messages.filter((m) => !m.is_read).length;
+  $("#list-sub").textContent =
+    `${scope} · ${state.messages.length}개` + (unread ? ` · 안 읽음 ${unread}` : "");
+}
+
 function renderList() {
   const host = $("#list");
   renderBulkbar();
+  renderListHeader();
 
   if (!state.messages.length) {
     host.innerHTML = `<div class="empty">메일이 없습니다.</div>`;
@@ -559,7 +569,10 @@ function openCompose({ replyTo } = {}) {
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <form class="modal modal-md" id="compose-form">
-      <h3>${replyTo ? "답장 쓰기" : "새 메일 쓰기"}</h3>
+      <div class="modal-head">
+        <h3>${replyTo ? "답장 쓰기" : "새 메일 쓰기"}</h3>
+        <button type="button" class="icon-btn" id="c-close" aria-label="닫기">✕</button>
+      </div>
       <div class="field">
         <label for="c-from">보내는 주소</label>
         <select id="c-from">
@@ -614,6 +627,7 @@ function openCompose({ replyTo } = {}) {
   document.addEventListener("keydown", onKey);
 
   $("#c-cancel").addEventListener("click", close);
+  $("#c-close").addEventListener("click", close);
   backdrop.addEventListener("mousedown", (event) => {
     if (event.target === backdrop) close();
   });
@@ -742,15 +756,38 @@ document.addEventListener("keydown", (event) => {
 
 $("#open-admin").addEventListener("click", () => {
   setDrawer(false);
-  openAdmin();
+  location.hash = "#admin";
 });
+
+/** #admin 으로 직접 들어올 수 있게 해시를 라우트로 쓴다 */
+function syncHashRoute() {
+  const wantAdmin = location.hash.replace(/^#\/?/, "") === "admin";
+  const open = document.getElementById("admin-modal");
+  if (wantAdmin && !open) {
+    if (!state.me) return; // 로그인 후 boot() 에서 다시 확인한다
+    if (!state.me.is_admin) {
+      toast("관리자 권한이 없습니다.");
+      history.replaceState(null, "", location.pathname + location.search);
+      return;
+    }
+    openAdmin();
+  } else if (!wantAdmin && open) {
+    open.remove();
+  }
+}
+
+window.addEventListener("hashchange", syncHashRoute);
 
 function openAdmin() {
   const backdrop = document.createElement("div");
+  backdrop.id = "admin-modal";
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal modal-lg">
-      <h3>관리자</h3>
+      <div class="modal-head">
+        <h3>관리자</h3>
+        <button class="icon-btn" id="admin-x" aria-label="닫기">✕</button>
+      </div>
       <div class="admin-tabs">
         <button class="admin-tab on" data-tab="users">계정</button>
         <button class="admin-tab" data-tab="addresses">메일 주소</button>
@@ -765,8 +802,12 @@ function openAdmin() {
   `;
   document.body.appendChild(backdrop);
 
-  const close = () => backdrop.remove();
+  const close = () => {
+    backdrop.remove();
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  };
   $("#admin-close").addEventListener("click", close);
+  $("#admin-x").addEventListener("click", close);
   backdrop.addEventListener("mousedown", (e) => {
     if (e.target === backdrop) close();
   });
@@ -1116,6 +1157,7 @@ async function boot() {
   renderFolders();
   await loadMailboxes();
   await loadMessages();
+  syncHashRoute();
 }
 
 boot();
