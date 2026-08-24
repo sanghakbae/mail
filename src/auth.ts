@@ -7,7 +7,10 @@
 
 import type { Firestore } from "./firestore";
 
-const PBKDF2_ITERATIONS = 210_000;
+// Workers 런타임은 PBKDF2 반복을 10만 회로 제한한다 (그 이상은 런타임이 거부).
+// 권장 작업량(60만 회 상당)을 맞추기 위해 10만 회를 6라운드 연쇄한다.
+const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ROUNDS = 6;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14; // 2주
 export const SESSION_COOKIE = "sk_session";
 
@@ -47,42 +50,61 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+/**
+ * PBKDF2 를 여러 라운드 연쇄한다.
+ * 각 라운드의 출력이 다음 라운드의 입력 비밀이 되므로, 총 작업량은
+ * rounds × iterations 이고 병렬화할 수 없다.
+ */
 async function pbkdf2(
   password: string,
   salt: Uint8Array,
   iterations: number,
+  rounds: number,
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
-    key,
-    256,
-  );
-  return new Uint8Array(bits);
+  let material: Uint8Array = new TextEncoder().encode(password);
+  for (let i = 0; i < rounds; i++) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      material as BufferSource,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
+      key,
+      256,
+    );
+    material = new Uint8Array(bits);
+  }
+  return material;
 }
 
 /** 새 비밀번호 해시 생성 */
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
-  return `pbkdf2$${PBKDF2_ITERATIONS}$${b64encode(salt)}$${b64encode(hash)}`;
+  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS, PBKDF2_ROUNDS);
+  // 포맷: pbkdf2$<라운드>x<라운드당 반복>$<salt>$<hash>
+  return `pbkdf2$${PBKDF2_ROUNDS}x${PBKDF2_ITERATIONS}$${b64encode(salt)}$${b64encode(hash)}`;
 }
 
 /** 저장된 해시와 입력 비밀번호 비교 */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
-  const iterations = Number(parts[1]);
-  if (!Number.isFinite(iterations) || iterations < 1000) return false;
+
+  // "6x100000" (연쇄) 또는 "100000" (단일 라운드) 둘 다 읽는다
+  const [roundsRaw, itersRaw] = parts[1].includes("x")
+    ? parts[1].split("x")
+    : ["1", parts[1]];
+  const rounds = Number(roundsRaw);
+  const iterations = Number(itersRaw);
+  if (!Number.isFinite(rounds) || rounds < 1 || rounds > 20) return false;
+  if (!Number.isFinite(iterations) || iterations < 1000 || iterations > 100_000) return false;
+
   const salt = b64decode(parts[2]);
   const expected = b64decode(parts[3]);
-  const actual = await pbkdf2(password, salt, iterations);
+  const actual = await pbkdf2(password, salt, iterations, rounds);
   return timingSafeEqual(actual, expected);
 }
 

@@ -160,6 +160,35 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
   return data.access_token;
 }
 
+/**
+ * 서비스 계정 값을 JSON 문자열로 정규화한다.
+ *
+ * 환경/파서에 따라 값이 이런 형태로 들어올 수 있다:
+ *  - 그대로의 JSON
+ *  - 작은/큰따옴표로 감싸진 JSON (일부 dotenv 파서가 따옴표를 벗기지 않는다)
+ *  - base64 로 인코딩된 JSON (한 줄로 넣기 편해서 쓰는 방식)
+ */
+export function normalizeServiceAccount(raw: string): string {
+  let value = (raw ?? "").trim();
+
+  // 감싼 따옴표가 있으면 벗긴다
+  const first = value[0];
+  if ((first === "'" || first === '"') && value[value.length - 1] === first) {
+    value = value.slice(1, -1).trim();
+  }
+
+  if (value.startsWith("{")) return value;
+
+  // JSON 이 아니면 base64 로 간주하고 디코딩을 시도한다
+  try {
+    const decoded = atob(value.replace(/\s+/g, ""));
+    if (decoded.trim().startsWith("{")) return decoded.trim();
+  } catch {
+    // base64 도 아니면 아래에서 원본을 그대로 넘겨 JSON.parse 가 실패하게 둔다
+  }
+  return value;
+}
+
 export interface FirestoreConfig {
   projectId: string;
   database: string;
@@ -173,9 +202,15 @@ export class Firestore {
   constructor(cfg: FirestoreConfig) {
     let parsed: ServiceAccount;
     try {
-      parsed = JSON.parse(cfg.serviceAccountJson) as ServiceAccount;
+      parsed = JSON.parse(normalizeServiceAccount(cfg.serviceAccountJson)) as ServiceAccount;
     } catch {
-      throw new Error("GCP_SERVICE_ACCOUNT 시크릿이 올바른 JSON 이 아니다");
+      // 키 내용은 절대 노출하지 않고, 진단에 필요한 형태 정보만 남긴다
+      const raw = cfg.serviceAccountJson ?? "";
+      throw new Error(
+        `GCP_SERVICE_ACCOUNT 시크릿이 올바른 JSON 이 아니다 ` +
+          `(길이 ${raw.length}, 시작 문자 ${JSON.stringify(raw.slice(0, 1))}, ` +
+          `끝 문자 ${JSON.stringify(raw.slice(-1))})`,
+      );
     }
     if (!parsed.client_email || !parsed.private_key) {
       throw new Error("서비스 계정 JSON 에 client_email / private_key 가 없다");

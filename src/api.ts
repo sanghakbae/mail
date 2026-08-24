@@ -5,6 +5,7 @@
  */
 
 import { Firestore } from "./firestore";
+import { validateDocId } from "./validate";
 import {
   canUseAddress,
   clearCookie,
@@ -16,7 +17,14 @@ import {
   type CookieOptions,
   type User,
 } from "./auth";
-import { extractAddress, makeSnippet, normalizeSubject, type StoredMessage } from "./mail";
+import {
+  derivedKeys,
+  extractAddress,
+  makeMessageId,
+  makeSnippet,
+  normalizeSubject,
+  type Folder,
+} from "./mail";
 
 export interface Env {
   EMAIL: SendEmail;
@@ -31,6 +39,8 @@ export interface Env {
   ALLOWED_ORIGINS: string;
   /** 세션 쿠키를 공유할 도메인. 로컬 개발에서는 비운다 */
   COOKIE_DOMAIN?: string;
+  /** 수신 저장이 실패했을 때 메일을 넘길 검증된 주소 (유실 방지 안전망) */
+  FALLBACK_FORWARD?: string;
 }
 
 const json = (data: unknown, init: ResponseInit = {}) =>
@@ -124,6 +134,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       | null;
     if (!body?.id || !body.password) return bad("id 와 password 가 필요하다");
     if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
+    const idError = validateDocId(body.id);
+    if (idError) return bad(`아이디를 쓸 수 없다: ${idError}`);
 
     const user: User = {
       id: body.id,
@@ -147,7 +159,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     // 아이디가 없어도 같은 응답/비슷한 시간이 걸리도록 더미 검증을 수행한다
     const storedHash =
       (doc?.password_hash as string | undefined) ??
-      "pbkdf2$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      "pbkdf2$6x100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     const ok = await verifyPassword(body.password, storedHash);
     if (!doc || !ok) return bad("아이디 또는 비밀번호가 올바르지 않다", 401);
 
@@ -178,6 +190,33 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     });
   }
 
+  // ---- 비밀번호 변경 ----
+  if (path === "/api/password" && method === "POST") {
+    const body = (await request.json().catch(() => null)) as
+      | { current_password?: string; new_password?: string }
+      | null;
+    if (!body?.current_password || !body.new_password) {
+      return bad("current_password 와 new_password 가 필요하다");
+    }
+    if (body.new_password.length < 8) return bad("새 비밀번호는 8자 이상이어야 한다");
+    if (body.new_password === body.current_password) {
+      return bad("새 비밀번호가 기존 비밀번호와 같다");
+    }
+    if (!(await verifyPassword(body.current_password, user.password_hash))) {
+      return bad("현재 비밀번호가 올바르지 않다", 403);
+    }
+    await db.update("users", user.id, {
+      password_hash: await hashPassword(body.new_password),
+      password_changed_at: new Date().toISOString(),
+    });
+    // 기존 세션 토큰은 그대로 유효하다. 새 쿠키를 내려 만료를 갱신해 준다.
+    const token = await createSession(user.id, env.SESSION_SECRET);
+    return json(
+      { ok: true },
+      { headers: { "set-cookie": sessionCookie(token, cookieOptions(request, env)) } },
+    );
+  }
+
   // ---- 메일함 목록 ----
   if (path === "/api/mailboxes" && method === "GET") {
     const boxes = await db.list("mailboxes");
@@ -195,6 +234,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       return bad(`주소는 @${env.MAIL_DOMAIN} 로 끝나야 한다`);
     }
     if (!/^[a-z0-9._%+-]+@/.test(address)) return bad("주소 형식이 올바르지 않다");
+    const addrError = validateDocId(address);
+    if (addrError) return bad(`주소를 쓸 수 없다: ${addrError}`);
     await db.set("mailboxes", address, {
       address,
       label: body.label ?? address.split("@")[0],
@@ -217,36 +258,20 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
 
+    // 폴더 + 주소 조합을 하나의 등호 필터로 만든다.
+    // "등호 1개 + __name__ 정렬" 은 Firestore 자동 색인으로 처리되므로
+    // 복합 색인을 따로 만들 필요가 없다.
     const where: Array<[string, string, unknown]> = [];
-    if (mailbox) where.push(["mailbox", "EQUAL", mailbox.toLowerCase()]);
+    const mb = mailbox.toLowerCase();
 
-    // 폴더별 필터. Firestore 는 부등호/불리언 조합에 제약이 있어 단순 등호만 쓴다.
-    switch (folder) {
-      case "inbox":
-        where.push(["direction", "EQUAL", "in"]);
-        where.push(["is_trashed", "EQUAL", false]);
-        where.push(["is_spam", "EQUAL", false]);
-        break;
-      case "sent":
-        where.push(["direction", "EQUAL", "out"]);
-        where.push(["is_trashed", "EQUAL", false]);
-        break;
-      case "starred":
-        where.push(["is_starred", "EQUAL", true]);
-        where.push(["is_trashed", "EQUAL", false]);
-        break;
-      case "spam":
-        where.push(["is_spam", "EQUAL", true]);
-        where.push(["is_trashed", "EQUAL", false]);
-        break;
-      case "trash":
-        where.push(["is_trashed", "EQUAL", true]);
-        break;
-      case "all":
-        where.push(["is_trashed", "EQUAL", false]);
-        break;
-      default:
-        return bad(`알 수 없는 folder: ${folder}`);
+    if (folder === "starred") {
+      if (mb) where.push(["star_key", "EQUAL", `${mb}|starred`]);
+      else where.push(["star_all", "EQUAL", true]);
+    } else if (["inbox", "sent", "spam", "trash"].includes(folder)) {
+      if (mb) where.push(["list_key", "EQUAL", `${mb}|${folder}`]);
+      else where.push(["folder", "EQUAL", folder]);
+    } else {
+      return bad(`알 수 없는 folder: ${folder}`);
     }
 
     // 검색어가 있으면 넉넉히 가져와 메모리에서 걸러낸다.
@@ -254,7 +279,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const fetchLimit = q ? Math.min(limit * 10, 500) : limit;
     let rows = await db.query("messages", {
       where,
-      orderBy: [["received_at", "DESCENDING"]],
+      // 문서 ID 가 도착 시각 순이라 최신순 정렬이 된다
+      orderBy: [["__name__", "DESCENDING"]],
       limit: fetchLimit,
     });
 
@@ -311,6 +337,24 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
     const existing = await db.get("messages", id);
     if (!existing) return bad("메시지를 찾을 수 없다", 404);
+
+    // 플래그가 바뀌면 목록 조회용 파생 키도 함께 갱신해야 한다
+    const trashed = Boolean(patch.is_trashed ?? existing.is_trashed);
+    const spam = Boolean(patch.is_spam ?? existing.is_spam);
+    const starred = Boolean(patch.is_starred ?? existing.is_starred);
+    const outbound = existing.direction === "out";
+
+    const folder: Folder = trashed ? "trash" : outbound ? "sent" : spam ? "spam" : "inbox";
+    Object.assign(
+      patch,
+      derivedKeys({
+        mailbox: String(existing.mailbox ?? ""),
+        folder,
+        starred,
+        subjectKey: String(existing.subject_key ?? ""),
+      }),
+    );
+
     await db.update("messages", id, patch);
     return json({ ok: true, ...patch });
   }
@@ -340,7 +384,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const threadId = decodeURIComponent(threadMatch[1]);
     const rows = await db.query("messages", {
       where: [["thread_id", "EQUAL", threadId]],
-      orderBy: [["received_at", "ASCENDING"]],
+      orderBy: [["__name__", "ASCENDING"]],
       limit: 200,
     });
     return json({ thread_id: threadId, messages: rows });
@@ -437,7 +481,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       }
     }
 
-    const id = crypto.randomUUID();
+    const sentAt = new Date();
+    const id = makeMessageId(sentAt);
     const outboundMessageId = `<${id}@${env.MAIL_DOMAIN}>`;
 
     try {
@@ -456,10 +501,12 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     }
 
     // 보낸 메일함에 기록
-    const record: StoredMessage & { subject_key: string } = {
+    const subjectKey = normalizeSubject(subject);
+    const record = {
+      ...derivedKeys({ mailbox: from, folder: "sent", starred: false, subjectKey }),
       id,
       mailbox: from,
-      direction: "out",
+      direction: "out" as const,
       message_id: outboundMessageId,
       in_reply_to: inReplyTo,
       refs: headers["References"] ?? null,
@@ -469,7 +516,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       to_addrs: toList,
       cc_addrs: ccList,
       subject,
-      subject_key: normalizeSubject(subject),
+      subject_key: subjectKey,
       snippet: makeSnippet(text, html),
       body_text: text,
       body_html: html,
@@ -480,7 +527,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       is_starred: false,
       is_trashed: false,
       is_spam: false,
-      received_at: new Date().toISOString(),
+      header_date: null,
+      received_at: sentAt.toISOString(),
     };
     await db.set("messages", id, record as unknown as Record<string, unknown>);
 

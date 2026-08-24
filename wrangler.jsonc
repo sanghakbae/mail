@@ -27,7 +27,9 @@
     "FIREBASE_PROJECT_ID": "mail-b5391",
     "FIRESTORE_DATABASE": "(default)",
     "ALLOWED_ORIGINS": "https://mail.sanghak.kr,http://localhost:8080",
-    "COOKIE_DOMAIN": "sanghak.kr"
+    "COOKIE_DOMAIN": "sanghak.kr",
+    // 수신 저장 실패 시 메일을 잃지 않도록 넘길 주소 (Email Routing 에 검증된 주소여야 한다)
+    "FALLBACK_FORWARD": "totoriverce@gmail.com"
   }
 
   // 시크릿 (wrangler secret put 으로 등록, 코드에 넣지 않는다):

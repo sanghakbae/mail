@@ -17,10 +17,30 @@ test("비밀번호 해시는 매번 다르고, 올바른 비밀번호만 통과�
   const a = await hashPassword("hunter2hunter2");
   const b = await hashPassword("hunter2hunter2");
   assert.notEqual(a, b, "salt 때문에 해시가 달라야 한다");
-  assert.ok(a.startsWith("pbkdf2$210000$"));
+  assert.ok(a.startsWith("pbkdf2$6x100000$"), a.slice(0, 20));
   assert.equal(await verifyPassword("hunter2hunter2", a), true);
   assert.equal(await verifyPassword("hunter2hunter3", a), false);
   assert.equal(await verifyPassword("hunter2hunter2", "garbage"), false);
+});
+
+test("반복 횟수가 Workers 한계(10만)를 넘는 해시는 거부한다", async () => {
+  // 런타임이 거부하는 값이므로 검증 단계에서 미리 걸러야 한다
+  assert.equal(await verifyPassword("x", "pbkdf2$210000$AAAA$AAAA"), false);
+  assert.equal(await verifyPassword("x", "pbkdf2$99x100000$AAAA$AAAA"), false);
+});
+
+test("단일 라운드 레거시 포맷도 계속 검증된다", async () => {
+  // pbkdf2$<반복>$... 형태 (x 없음)
+  const salt = new Uint8Array(16);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode("pw"), "PBKDF2", false, ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 50000, hash: "SHA-256" }, key, 256,
+  );
+  const stored = `pbkdf2$50000$${Buffer.from(salt).toString("base64")}$${Buffer.from(bits).toString("base64")}`;
+  assert.equal(await verifyPassword("pw", stored), true);
+  assert.equal(await verifyPassword("wrong", stored), false);
 });
 
 test("세션 토큰은 서명이 맞을 때만 통과한다", async () => {
@@ -124,4 +144,66 @@ test("Firestore 값 변환은 왕복해도 같은 값이 나온다", () => {
   assert.equal(fromFs({ integerValue: "9" }), 9);
   assert.equal(docId("projects/p/databases/(default)/documents/messages/abc"), "abc");
   assert.equal(docId(undefined), "");
+});
+
+test("서비스 계정 값은 따옴표/base64 로 감싸여 있어도 읽힌다", async () => {
+  const { normalizeServiceAccount } = await import("../src/firestore.ts");
+  const plain = '{"client_email":"a@b.com","private_key":"k"}';
+  assert.equal(normalizeServiceAccount(plain), plain);
+  assert.equal(normalizeServiceAccount(`  ${plain}  `), plain);
+  assert.equal(normalizeServiceAccount(`'${plain}'`), plain);
+  assert.equal(normalizeServiceAccount(`"${plain}"`), plain);
+  assert.equal(normalizeServiceAccount(Buffer.from(plain).toString("base64")), plain);
+  // 이스케이프된 개행이 살아있어야 PEM 이 깨지지 않는다
+  const withPem = '{"private_key":"-----BEGIN-----\\nabc\\n-----END-----\\n"}';
+  assert.equal(JSON.parse(normalizeServiceAccount(`'${withPem}'`)).private_key.includes("\n"), true);
+});
+
+test("문서 ID 는 도착 시각 순으로 정렬된다", async () => {
+  const { makeMessageId } = await import("../src/mail.ts");
+  const early = makeMessageId(new Date("2026-08-24T04:30:00.123Z"));
+  const later = makeMessageId(new Date("2026-08-24T04:30:00.124Z"));
+  const muchLater = makeMessageId(new Date("2026-12-01T00:00:00.000Z"));
+
+  assert.ok(early < later, `${early} < ${later}`);
+  assert.ok(later < muchLater, `${later} < ${muchLater}`);
+  // 고정 폭이어야 사전순 비교가 시각순과 일치한다
+  assert.equal(early.split("_")[0].length, muchLater.split("_")[0].length);
+  assert.match(early, /^\d{8}T\d{9}_[0-9a-f]{8}$/);
+
+  // 같은 시각이라도 ID 가 충돌하지 않아야 한다
+  const d = new Date("2026-08-24T04:30:00.000Z");
+  assert.notEqual(makeMessageId(d), makeMessageId(d));
+});
+
+test("파생 키는 폴더·별표 상태를 반영한다", async () => {
+  const { derivedKeys } = await import("../src/mail.ts");
+
+  const inbox = derivedKeys({ mailbox: "a@sanghak.kr", folder: "inbox", starred: false, subjectKey: "안녕" });
+  assert.equal(inbox.list_key, "a@sanghak.kr|inbox");
+  assert.equal(inbox.star_key, null);
+  assert.equal(inbox.star_all, false);
+  assert.equal(inbox.subject_lookup, "a@sanghak.kr|안녕");
+
+  const starred = derivedKeys({ mailbox: "a@sanghak.kr", folder: "inbox", starred: true, subjectKey: "x" });
+  assert.equal(starred.star_key, "a@sanghak.kr|starred");
+  assert.equal(starred.star_all, true);
+
+  // 휴지통에 있으면 중요 목록에서 빠져야 한다
+  const trashed = derivedKeys({ mailbox: "a@sanghak.kr", folder: "trash", starred: true, subjectKey: "x" });
+  assert.equal(trashed.list_key, "a@sanghak.kr|trash");
+  assert.equal(trashed.star_key, null);
+  assert.equal(trashed.star_all, false);
+});
+
+test("Firestore 예약 ID 는 미리 거부한다", async () => {
+  const { validateDocId } = await import("../src/validate.ts");
+  assert.equal(validateDocId("admin"), null);
+  assert.equal(validateDocId("hello@sanghak.kr"), null);
+  assert.ok(validateDocId("__verify__"));
+  assert.ok(validateDocId(""));
+  assert.ok(validateDocId("a/b"));
+  assert.ok(validateDocId("."));
+  assert.ok(validateDocId(".."));
+  assert.ok(validateDocId("x".repeat(1501)));
 });

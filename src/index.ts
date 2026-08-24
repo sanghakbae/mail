@@ -80,9 +80,21 @@ export default {
         `수신 저장: ${message.from} → ${message.to} (id=${result.messageId}, 첨부 ${result.attachmentCount}개)`,
       );
     } catch (error) {
-      // 저장에 실패했는데 조용히 삼키면 메일이 사라진다.
-      // 예외를 던져 Cloudflare 가 재시도하도록 둔다.
       console.error(`수신 저장 실패 (${message.from} → ${message.to})`, error);
+
+      // 저장이 실패해도 메일을 잃지 않도록, 검증된 주소로 넘겨둔다.
+      // (Firestore 장애, 색인 문제, 파싱 실패 등에 대한 안전망)
+      if (env.FALLBACK_FORWARD) {
+        try {
+          await message.forward(env.FALLBACK_FORWARD);
+          console.warn(`안전망 포워딩: ${env.FALLBACK_FORWARD}`);
+          return;
+        } catch (forwardError) {
+          console.error("안전망 포워딩도 실패", forwardError);
+        }
+      }
+
+      // 포워딩도 못 했으면 예외를 던져 Cloudflare 가 재시도하게 한다
       throw error;
     }
   },

@@ -43,6 +43,46 @@ export interface StoredAttachment {
   r2_key: string;
 }
 
+
+/** 메시지가 속한 폴더. 플래그를 폴더 하나로 합쳐 색인을 단순화한다. */
+export type Folder = "inbox" | "sent" | "spam" | "trash";
+
+/**
+ * 시간순으로 정렬되는 문서 ID.
+ *
+ * Firestore 는 "등호 필터 1개 + __name__ 정렬" 을 자동 색인으로 처리한다.
+ * 문서 ID 가 도착 시각 순으로 정렬되면 복합 색인 없이 최신순 목록을 만들 수 있다.
+ * 예: 20260824T043000123_a1b2c3d4
+ */
+export function makeMessageId(arrivedAt: Date): string {
+  const compact = arrivedAt.toISOString().replace(/[-:.Z]/g, "");
+  return `${compact}_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * 목록 조회에 쓰는 파생 키.
+ * 폴더·별표가 바뀔 때마다 함께 갱신해야 한다.
+ */
+export function derivedKeys(opts: {
+  mailbox: string;
+  folder: Folder;
+  starred: boolean;
+  subjectKey: string;
+}): Record<string, unknown> {
+  const inStarred = opts.starred && opts.folder !== "trash";
+  return {
+    folder: opts.folder,
+    // 특정 주소의 특정 폴더
+    list_key: `${opts.mailbox}|${opts.folder}`,
+    // 특정 주소의 중요 표시
+    star_key: inStarred ? `${opts.mailbox}|starred` : null,
+    // 전체 주소의 중요 표시
+    star_all: inStarred,
+    // 제목 기반 스레드 폴백
+    subject_lookup: `${opts.mailbox}|${opts.subjectKey}`,
+  };
+}
+
 /** 주소에서 이메일만 뽑는다. "홍길동 <a@b.com>" → a@b.com */
 export function extractAddress(input: string | null | undefined): string {
   if (!input) return "";
@@ -118,11 +158,8 @@ export async function resolveThreadId(
   const normalized = normalizeSubject(opts.subject);
   if (normalized) {
     const found = await db.query("messages", {
-      where: [
-        ["mailbox", "EQUAL", opts.mailbox],
-        ["subject_key", "EQUAL", normalized],
-      ],
-      orderBy: [["received_at", "DESCENDING"]],
+      where: [["subject_lookup", "EQUAL", `${opts.mailbox}|${normalized}`]],
+      orderBy: [["__name__", "DESCENDING"]],
       limit: 1,
     });
     if (found.length && typeof found[0].thread_id === "string") {
@@ -164,7 +201,8 @@ export async function ingestInbound(
 ): Promise<IngestResult> {
   const parsed: ParsedEmail = await PostalMime.parse(args.rawBuffer);
 
-  const id = crypto.randomUUID();
+  const arrivedAt = new Date();
+  const id = makeMessageId(arrivedAt);
   const mailbox = args.envelopeTo.toLowerCase();
   const messageId = (args.headers.get("message-id") ?? parsed.messageId ?? `<${id}@local>`).trim();
   const inReplyTo = args.headers.get("in-reply-to");
@@ -214,10 +252,14 @@ export async function ingestInbound(
   const bodyText = parsed.text ?? "";
   const bodyHtml = parsed.html ?? "";
 
-  const record: StoredMessage & { subject_key: string } = {
+  const isSpam = looksLikeSpam(args.headers);
+  const subjectKey = normalizeSubject(subject);
+
+  const record = {
+    ...derivedKeys({ mailbox, folder: isSpam ? "spam" : "inbox", starred: false, subjectKey }),
     id,
     mailbox,
-    direction: "in",
+    direction: "in" as const,
     message_id: messageId,
     in_reply_to: inReplyTo,
     refs: references,
@@ -227,7 +269,7 @@ export async function ingestInbound(
     to_addrs: (parsed.to ?? []).map((a) => extractAddress(a.address)).filter(Boolean),
     cc_addrs: (parsed.cc ?? []).map((a) => extractAddress(a.address)).filter(Boolean),
     subject,
-    subject_key: normalizeSubject(subject),
+    subject_key: subjectKey,
     snippet: makeSnippet(bodyText, bodyHtml),
     body_text: bodyText,
     body_html: bodyHtml,
@@ -237,8 +279,10 @@ export async function ingestInbound(
     is_read: false,
     is_starred: false,
     is_trashed: false,
-    is_spam: looksLikeSpam(args.headers),
-    received_at: (parsed.date ? new Date(parsed.date) : new Date()).toISOString(),
+    is_spam: isSpam,
+    // 헤더의 Date 는 신뢰할 수 없으므로 표시용으로만 쓰고, 정렬은 문서 ID(도착 시각)로 한다
+    header_date: parsed.date ? new Date(parsed.date).toISOString() : null,
+    received_at: arrivedAt.toISOString(),
   };
 
   await db.set("messages", id, record as unknown as Record<string, unknown>);

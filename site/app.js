@@ -92,20 +92,47 @@ function toast(message) {
 
 /* ---------- 로그인 ---------- */
 
+// 비밀번호 표시 토글
+$("#toggle-pw").addEventListener("click", () => {
+  const input = $("#login-pw");
+  const btn = $("#toggle-pw");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  btn.textContent = showing ? "보기" : "숨기기";
+  btn.setAttribute("aria-label", showing ? "비밀번호 표시" : "비밀번호 숨기기");
+  input.focus();
+});
+
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const btn = $("#login-btn");
   const errorEl = $("#login-error");
   errorEl.textContent = "";
+
+  // 서버까지 가지 않아도 되는 입력 실수는 여기서 잡는다
+  const id = $("#login-id").value.trim();
+  const pw = $("#login-pw").value;
+  if (!id || !pw) {
+    errorEl.textContent = "아이디와 비밀번호를 모두 입력하세요.";
+    (!id ? $("#login-id") : $("#login-pw")).focus();
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = "로그인 중…";
   try {
     await api("/api/login", {
       method: "POST",
-      body: JSON.stringify({ id: $("#login-id").value.trim(), password: $("#login-pw").value }),
+      body: JSON.stringify({ id, password: pw }),
     });
     $("#login-pw").value = "";
-    await boot();
+    await // 화면 폭이 바뀌면 분할/전환 모드를 다시 판단한다
+window.addEventListener("resize", () => {
+  if (!isNarrow()) $("#app").classList.remove("reading");
+  else if (state.selectedId) $("#app").classList.add("reading");
+});
+
+boot();
   } catch (error) {
     errorEl.textContent = error.message;
   } finally {
@@ -133,6 +160,7 @@ function renderFolders() {
     btn.addEventListener("click", () => {
       state.folder = folder.key;
       state.selectedId = null;
+      setReading(false);
       renderFolders();
       loadMessages();
     });
@@ -150,6 +178,7 @@ function renderMailboxes() {
   all.addEventListener("click", () => {
     state.mailbox = "";
     state.selectedId = null;
+    setReading(false);
     renderMailboxes();
     loadMessages();
   });
@@ -163,6 +192,7 @@ function renderMailboxes() {
     btn.addEventListener("click", () => {
       state.mailbox = box.address;
       state.selectedId = null;
+      setReading(false);
       renderMailboxes();
       loadMessages();
     });
@@ -260,9 +290,17 @@ $("#refresh").addEventListener("click", () => loadMessages());
 
 /* ---------- 읽기 ---------- */
 
+const isNarrow = () => window.matchMedia("(max-width: 700px)").matches;
+
+/** 좁은 화면에서는 목록과 본문을 번갈아 보여준다 */
+function setReading(on) {
+  $("#app").classList.toggle("reading", Boolean(on) && isNarrow());
+}
+
 async function openMessage(id) {
   state.selectedId = id;
   renderList();
+  setReading(true);
   const reader = $("#reader");
   reader.innerHTML = `<div class="empty">불러오는 중…</div>`;
   try {
@@ -293,6 +331,7 @@ function renderMessage(msg, attachments) {
         <div>${escapeHtml(new Date(msg.received_at).toLocaleString("ko-KR"))} · ${escapeHtml(formatBytes(msg.size_bytes))} · ${escapeHtml(msg.mailbox)}</div>
       </div>
       <div class="actions">
+        <button class="btn back-btn" id="back">← 목록</button>
         <button class="btn btn-primary" id="reply">답장</button>
         <button class="btn" id="star">${msg.is_starred ? "중요 해제" : "중요 표시"}</button>
         <button class="btn" id="trash">${msg.is_trashed ? "휴지통에서 복원" : "휴지통으로"}</button>
@@ -332,6 +371,7 @@ function renderMessage(msg, attachments) {
     body.appendChild(box);
   }
 
+  $("#back").addEventListener("click", () => setReading(false));
   $("#reply").addEventListener("click", () => openCompose({ replyTo: msg }));
   $("#star").addEventListener("click", () => patchMessage(msg.id, { is_starred: !msg.is_starred }));
   $("#trash").addEventListener("click", () => patchMessage(msg.id, { is_trashed: !msg.is_trashed }));
@@ -467,5 +507,11 @@ async function boot() {
   await loadMailboxes();
   await loadMessages();
 }
+
+// 화면 폭이 바뀌면 분할/전환 모드를 다시 판단한다
+window.addEventListener("resize", () => {
+  if (!isNarrow()) $("#app").classList.remove("reading");
+  else if (state.selectedId) $("#app").classList.add("reading");
+});
 
 boot();
