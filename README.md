@@ -41,9 +41,12 @@ CORS 는 `ALLOWED_ORIGINS` 에 등록된 출처만 허용한다.
 
 ### 1. Firebase (Firestore)
 
-1. Firebase 콘솔에서 프로젝트를 만들고 **Firestore Database** 를 생성한다 (Native 모드).
+프로젝트: **`mail-b5391`** (`wrangler.jsonc` 에 이미 설정되어 있다)
+
+1. Firebase 콘솔에서 **Firestore Database** 를 생성한다 (Native 모드).
 2. **프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성** 으로 JSON 키를 받는다.
-3. `wrangler.jsonc` 의 `FIREBASE_PROJECT_ID` 를 실제 프로젝트 ID 로 바꾼다.
+   웹 SDK 설정(`apiKey`, `appId` 등)으로는 안 된다 — 그건 브라우저용 공개 설정이라
+   서버에서 Firestore 에 관리자 권한으로 접근할 수 없다.
 
 Firestore 는 클라이언트가 직접 접근하지 않는다 (Worker 만 서비스 계정으로 접근).
 따라서 보안 규칙은 전부 거부로 두는 편이 안전하다:

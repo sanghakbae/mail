@@ -24,7 +24,7 @@
   "vars": {
     "MAIL_DOMAIN": "sanghak.kr",
     // Firebase 프로젝트 ID — 실제 값으로 바꿔야 한다
-    "FIREBASE_PROJECT_ID": "REPLACE_WITH_FIREBASE_PROJECT_ID",
+    "FIREBASE_PROJECT_ID": "mail-b5391",
     "FIRESTORE_DATABASE": "(default)",
     "ALLOWED_ORIGINS": "https://mail.sanghak.kr,http://localhost:8080",
     "COOKIE_DOMAIN": "sanghak.kr"
