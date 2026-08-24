@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sanghak-mail",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // API 는 api.sanghak.kr 에서 서빙한다. UI 는 GitHub Pages(mail.sanghak.kr).
+  "routes": [
+    { "pattern": "api.sanghak.kr", "custom_domain": true }
+  ],
+
+  // 발송: sanghak.kr 의 모든 주소에서 보낼 수 있게 열어둔다
+  "send_email": [
+    { "name": "EMAIL" }
+  ],
+
+  // 원본 MIME + 첨부파일 바이트
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "sanghak-mail-blobs" }
+  ],
+
+  "vars": {
+    "MAIL_DOMAIN": "sanghak.kr",
+    // Firebase 프로젝트 ID — 실제 값으로 바꿔야 한다
+    "FIREBASE_PROJECT_ID": "REPLACE_WITH_FIREBASE_PROJECT_ID",
+    "FIRESTORE_DATABASE": "(default)",
+    "ALLOWED_ORIGINS": "https://mail.sanghak.kr,http://localhost:8080",
+    "COOKIE_DOMAIN": "sanghak.kr"
+  }
+
+  // 시크릿 (wrangler secret put 으로 등록, 코드에 넣지 않는다):
+  //   GCP_SERVICE_ACCOUNT  - Firebase 서비스 계정 JSON 전체
+  //   SESSION_SECRET       - 세션 쿠키 서명용 랜덤 문자열
+  //   SETUP_TOKEN          - 최초 관리자 계정 생성용 1회성 토큰
+}

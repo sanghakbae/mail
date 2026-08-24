@@ -1,0 +1,47 @@
+name: Deploy webmail to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 한 번에 하나만 진행한다
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 정적 파일 준비
+        run: |
+          mkdir -p _dist
+          # 로컬 개발용 파일은 배포에서 제외한다
+          rsync -a --exclude 'index.dev.html' --exclude 'config.dev.js' site/ _dist/
+          # 커스텀 도메인
+          echo "mail.sanghak.kr" > _dist/CNAME
+          # SPA 라우팅은 쓰지 않지만, 404 는 진입점으로 되돌린다
+          cp _dist/index.html _dist/404.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
