@@ -537,6 +537,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   max-height: 92dvh;
   overflow-y: auto;
 }
+.modal-sm { max-width: 400px; }
+.dlg-msg { margin: 0 0 14px; font-size: 13px; color: var(--muted); line-height: 1.55; }
 .modal-md { max-width: 680px; }
 .modal-lg { max-width: 940px; }
 
@@ -732,6 +734,23 @@ table.grid tr:last-child td { border-bottom: none; }
     border: none; border-radius: 0;
     padding: max(18px, env(safe-area-inset-top)) 16px 24px;
   }
+  /* 확인/입력 모달은 전체화면으로 만들지 않는다 */
+  .modal-backdrop:has(.modal-sm) { padding: 20px; place-items: center; }
+  .modal-sm {
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .modal-sm .modal-head,
+  .modal-sm .modal-actions {
+    position: static;
+    margin: 0 0 12px;
+    padding: 0;
+    border: none;
+  }
+  .modal-sm .modal-actions { margin: 14px 0 0; }
+
   /* 관리자 모달은 좁은 화면에서도 80% x 80% 를 유지한다 */
   .modal-backdrop:has(.modal-admin) { padding: 20px; place-items: center; }
   .modal-admin {

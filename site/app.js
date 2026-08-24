@@ -129,6 +129,65 @@ function setDrawer(open) {
   $("#scrim").hidden = !open;
 }
 
+
+/* ---------- 확인 / 입력 모달 ----------
+ * 브라우저 기본 confirm()/prompt() 는 인앱 브라우저나 웹뷰에서 차단되어
+ * 아무 일도 일어나지 않는다. 그래서 직접 만든 모달로 대체한다.
+ */
+
+function dialog({ title, message, fields = [], confirmLabel = "확인", danger = false }) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.style.zIndex = "70";
+    backdrop.innerHTML = `
+      <form class="modal modal-sm" id="dlg-form">
+        <div class="modal-head"><h3>${esc(title)}</h3></div>
+        ${message ? `<p class="dlg-msg">${esc(message)}</p>` : ""}
+        ${fields
+          .map(
+            (f, i) => `<div class="field">
+              ${f.label ? `<label for="dlg-f${i}">${esc(f.label)}</label>` : ""}
+              <input id="dlg-f${i}" value="${esc(f.value ?? "")}"
+                     placeholder="${esc(f.placeholder ?? "")}" ${i === 0 ? "autofocus" : ""} />
+            </div>`,
+          )
+          .join("")}
+        <div class="modal-actions">
+          <button type="button" class="btn" id="dlg-cancel">취소</button>
+          <button type="submit" class="btn ${danger ? "btn-danger" : "btn-primary"}">${esc(confirmLabel)}</button>
+        </div>
+      </form>
+    `;
+    document.body.appendChild(backdrop);
+
+    const done = (value) => {
+      backdrop.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") done(null);
+    };
+    document.addEventListener("keydown", onKey);
+
+    backdrop.querySelector("#dlg-cancel").addEventListener("click", () => done(null));
+    backdrop.addEventListener("mousedown", (event) => {
+      if (event.target === backdrop) done(null);
+    });
+    backdrop.querySelector("#dlg-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!fields.length) return done(true);
+      const values = fields.map((_, i) => backdrop.querySelector(`#dlg-f${i}`).value.trim());
+      done(values);
+    });
+    backdrop.querySelector("#dlg-f0")?.focus();
+  });
+}
+
+const confirmDialog = (title, message, confirmLabel = "삭제") =>
+  dialog({ title, message, confirmLabel, danger: true });
+
 /* ================= 로그인 ================= */
 
 $("#toggle-pw").addEventListener("click", () => {
@@ -232,10 +291,16 @@ function renderMailboxes() {
 }
 
 $("#add-mailbox").addEventListener("click", async () => {
-  const localPart = prompt(`추가할 주소의 @ 앞부분을 입력하세요 (@${CFG.domain})`);
+  const answer = await dialog({
+    title: "메일 주소 추가",
+    message: `@${CFG.domain} 앞에 올 이름을 입력하세요.`,
+    fields: [{ label: "주소", placeholder: `예: contact` }],
+    confirmLabel: "추가",
+  });
+  const localPart = answer?.[0];
   if (!localPart) return;
   try {
-    const address = `${localPart.trim().toLowerCase()}@${CFG.domain}`;
+    const address = `${localPart.toLowerCase()}@${CFG.domain}`;
     await api("/api/mailboxes", { method: "POST", body: JSON.stringify({ address }) });
     toast(`${address} 추가됨`);
     await loadMailboxes();
@@ -546,10 +611,22 @@ const TOOLS = [
   { cmd: "removeFormat", label: "✕", title: "서식 지우기" },
 ];
 
-function execTool(cmd) {
+async function execTool(cmd) {
   if (cmd === "createLink") {
-    const url = prompt("링크 주소를 입력하세요", "https://");
+    // 선택 영역을 잃지 않도록 미리 저장해 둔다
+    const sel = window.getSelection();
+    const saved = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const answer = await dialog({
+      title: "링크 삽입",
+      fields: [{ label: "주소", value: "https://" }],
+      confirmLabel: "삽입",
+    });
+    const url = answer?.[0];
     if (!url) return;
+    if (saved) {
+      sel.removeAllRanges();
+      sel.addRange(saved);
+    }
     document.execCommand("createLink", false, url);
     return;
   }
@@ -655,9 +732,9 @@ function openCompose({ replyTo } = {}) {
   for (const btn of backdrop.querySelectorAll(".tool")) {
     // mousedown 을 막아 에디터의 선택 영역을 잃지 않게 한다
     btn.addEventListener("mousedown", (e) => e.preventDefault());
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       editor.focus();
-      execTool(btn.dataset.cmd);
+      await execTool(btn.dataset.cmd);
       syncToolState();
     });
   }
@@ -896,7 +973,11 @@ async function renderAdminUsers(host) {
   for (const btn of host.querySelectorAll("[data-del]")) {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.del;
-      if (!confirm(`계정 "${id}" 을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+      const ok = await confirmDialog(
+        "계정 삭제",
+        `계정 "${id}" 을 삭제합니다. 되돌릴 수 없습니다.`,
+      );
+      if (!ok) return;
       try {
         await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" });
         toast(`${id} 삭제됨`);
@@ -1062,12 +1143,18 @@ async function renderAdminAddresses(host) {
   `;
 
   $("#admin-add-addr").addEventListener("click", async () => {
-    const localPart = prompt(`추가할 주소의 @ 앞부분 (@${CFG.domain})`);
+    const answer = await dialog({
+      title: "메일 주소 추가",
+      message: `@${CFG.domain} 앞에 올 이름을 입력하세요.`,
+      fields: [{ label: "주소", placeholder: "예: contact" }],
+      confirmLabel: "추가",
+    });
+    const localPart = answer?.[0];
     if (!localPart) return;
     try {
       await api("/api/mailboxes", {
         method: "POST",
-        body: JSON.stringify({ address: `${localPart.trim().toLowerCase()}@${CFG.domain}` }),
+        body: JSON.stringify({ address: `${localPart.toLowerCase()}@${CFG.domain}` }),
       });
       toast("추가했습니다.");
       await loadMailboxes();
@@ -1080,7 +1167,11 @@ async function renderAdminAddresses(host) {
   for (const btn of host.querySelectorAll("[data-del-addr]")) {
     btn.addEventListener("click", async () => {
       const address = btn.dataset.delAddr;
-      if (!confirm(`${address} 을 목록에서 지울까요? (이미 받은 메일은 남습니다)`)) return;
+      const ok = await confirmDialog(
+        "메일 주소 삭제",
+        `${address} 을 목록에서 지웁니다. 이미 받은 메일은 그대로 남습니다.`,
+      );
+      if (!ok) return;
       try {
         await api(`/api/mailboxes/${encodeURIComponent(address)}`, { method: "DELETE" });
         toast("삭제했습니다.");
