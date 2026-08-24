@@ -539,6 +539,29 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .modal-md { max-width: 680px; }
 .modal-lg { max-width: 940px; }
+
+/*
+ * 관리자 모달은 화면의 80% x 80% 로 고정한다.
+ * 탭을 바꿔도 모달 크기가 흔들리지 않도록, 내용 영역만 안쪽에서 스크롤한다.
+ */
+.modal-admin {
+  width: 80vw;
+  height: 80dvh;
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-admin .modal-head { flex-shrink: 0; margin-bottom: 14px; }
+.modal-admin .admin-tabs { flex-shrink: 0; margin-bottom: 14px; }
+.modal-admin #admin-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-admin .modal-actions { flex-shrink: 0; }
 .modal-head {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 18px;
@@ -709,6 +732,22 @@ table.grid tr:last-child td { border-bottom: none; }
     border: none; border-radius: 0;
     padding: max(18px, env(safe-area-inset-top)) 16px 24px;
   }
+  /* 관리자 모달은 좁은 화면에서도 80% x 80% 를 유지한다 */
+  .modal-backdrop:has(.modal-admin) { padding: 20px; place-items: center; }
+  .modal-admin {
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .modal-admin .modal-head,
+  .modal-admin .modal-actions {
+    position: static;
+    margin: 0 0 12px;
+    padding: 0;
+    border: none;
+  }
+  .modal-admin .modal-actions { margin: 12px 0 0; }
   .editor { max-height: none; min-height: 38dvh; }
 
   /* 헤더/푸터를 고정해 긴 폼에서도 제목과 버튼이 항상 보이게 한다 */

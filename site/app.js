@@ -801,7 +801,7 @@ function openAdmin() {
   backdrop.id = "admin-modal";
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
-    <div class="modal modal-lg">
+    <div class="modal modal-admin">
       <div class="modal-head">
         <h3>관리자</h3>
         <button class="icon-btn" id="admin-x" aria-label="닫기">✕</button>
