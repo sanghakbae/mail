@@ -144,11 +144,30 @@ _dmarc.sanghak.kr  TXT  "v=DMARC1; p=none; rua=mailto:dmarc@sanghak.kr"
 ```bash
 npm install
 npm run dev      # API  → http://localhost:8787
-npm run dev:ui   # UI   → http://localhost:8080/index.dev.html
+npm run dev:ui   # UI   → http://localhost:8080
 ```
 
-`.dev.vars` 에 `FIREBASE_PROJECT_ID` 와 `GCP_SERVICE_ACCOUNT` 를 채워야 로그인이 된다.
-`index.dev.html` 은 `config.dev.js`(localhost:8787) 를 쓰고, 배포에서는 제외된다.
+`config.js` 가 접속 호스트를 보고 API 주소를 고른다 — localhost 면 `http://localhost:8787`,
+그 외에는 배포된 Worker. 따로 열어야 하는 개발용 HTML 은 없다.
+
+> 로컬에서 프로덕션 API 로 로그인하면 세션이 유지되지 않는다.
+> 프로덕션은 쿠키를 `Domain=sanghak.kr; Secure` 로 내려주는데, `http://localhost` 에서는
+> 브라우저가 그 쿠키를 거부한다. 그래서 위처럼 자동으로 갈라준다.
+
+### 개발 데이터 분리
+
+`.dev.vars` 의 `COLLECTION_PREFIX="dev_"` 로 개발환경은 `dev_users`, `dev_messages` 등
+별도 컬렉션을 쓴다. 같은 Firebase 프로젝트를 쓰지만 운영 데이터와 섞이지 않는다.
+(Firestore 데이터베이스를 새로 만들 권한이 없어도 되는 방식)
+
+개발환경은 계정이 비어 있으므로 처음에 하나 만들어야 한다:
+
+```bash
+curl -X POST http://localhost:8787/api/setup \
+  -H "x-setup-token: dev-setup-token" \
+  -H 'content-type: application/json' \
+  -d '{"id":"dev","password":"devdevdev"}'
+```
 
 ```bash
 npm test         # 인증·파싱·변환 단위 테스트
@@ -202,5 +221,5 @@ wrangler email routing addresses list
 - **검색은 전문 검색이 아니다.** Firestore 에 전문 색인이 없어, 최근 500 건을 가져와
   메모리에서 걸러낸다. 메일이 많아지면 외부 검색 색인이 필요하다.
 - **IMAP/SMTP 클라이언트로는 접속할 수 없다.** 브라우저 웹메일 전용이다.
-- **첨부파일 발송은 아직 UI 에 없다.** API 레벨에서는 Email Sending 이 지원한다.
+- **첨부파일 발송 한도**: 파일당 10MB, 합계 20MB, 최대 10개.
 - HTML 본문은 스크립트를 막은 `sandbox` iframe 안에서만 렌더링한다.

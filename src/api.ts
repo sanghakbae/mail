@@ -6,7 +6,7 @@
 
 import { Firestore } from "./firestore";
 import { validateDocId } from "./validate";
-import { resolveProvider, SendError, sendMail } from "./sender";
+import { base64ToBytes, resolveProvider, SendError, sendMail } from "./sender";
 import {
   canUseAddress,
   clearCookie,
@@ -46,6 +46,8 @@ export interface Env {
   MAIL_PROVIDER?: string;
   /** MAIL_PROVIDER=resend 일 때 필요 */
   RESEND_API_KEY?: string;
+  /** Firestore 컬렉션 접두사. 개발환경에서 "dev_" 로 두어 운영 데이터와 분리한다 */
+  COLLECTION_PREFIX?: string;
 }
 
 const json = (data: unknown, init: ResponseInit = {}) =>
@@ -89,6 +91,7 @@ export function makeDb(env: Env): Firestore {
     projectId: env.FIREBASE_PROJECT_ID,
     database: env.FIRESTORE_DATABASE || "(default)",
     serviceAccountJson: env.GCP_SERVICE_ACCOUNT,
+    collectionPrefix: env.COLLECTION_PREFIX ?? "",
   });
 }
 
@@ -356,6 +359,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         mail_domain: env.MAIL_DOMAIN,
         api_host: new URL(request.url).host,
         firebase_project: env.FIREBASE_PROJECT_ID,
+        collection_prefix: env.COLLECTION_PREFIX || "(없음)",
         send_binding: Boolean(env.EMAIL),
         mail_provider: resolveProvider(env),
         mail_provider_setting: env.MAIL_PROVIDER ?? "auto",
@@ -593,6 +597,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
           text?: string;
           html?: string;
           reply_to_message_id?: string;
+          attachments?: Array<{ filename?: string; mime_type?: string; content_base64?: string }>;
         }
       | null;
     if (!body) return bad("본문이 필요하다");
@@ -640,6 +645,37 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       }
     }
 
+    // ---- 첨부파일 검증 ----
+    const MAX_FILES = 10;
+    const MAX_FILE_BYTES = 10 * 1024 * 1024; // 파일당 10MB
+    const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // 합계 20MB
+
+    const attachments: Array<{ filename: string; mimeType: string; base64: string; bytes: number }> = [];
+    let totalBytes = 0;
+    for (const raw of body.attachments ?? []) {
+      if (!raw?.content_base64) return bad("첨부파일 내용이 비어 있다");
+      const filename = (raw.filename ?? "attachment").trim() || "attachment";
+      // 경로 구분자가 섞이면 R2 키가 깨진다
+      if (filename.includes("/") || filename.includes("\\")) {
+        return bad(`첨부파일 이름에 경로 구분자를 쓸 수 없다: ${filename}`);
+      }
+      // base64 길이로 원본 크기를 계산한다 (4문자 → 3바이트)
+      const padding = raw.content_base64.endsWith("==") ? 2 : raw.content_base64.endsWith("=") ? 1 : 0;
+      const bytes = Math.floor((raw.content_base64.length * 3) / 4) - padding;
+      if (bytes > MAX_FILE_BYTES) {
+        return bad(`${filename} 이 너무 크다 (파일당 최대 10MB)`);
+      }
+      totalBytes += bytes;
+      attachments.push({
+        filename,
+        mimeType: raw.mime_type || "application/octet-stream",
+        base64: raw.content_base64,
+        bytes,
+      });
+    }
+    if (attachments.length > MAX_FILES) return bad(`첨부파일은 최대 ${MAX_FILES}개까지 가능하다`);
+    if (totalBytes > MAX_TOTAL_BYTES) return bad("첨부파일 합계가 너무 크다 (최대 20MB)");
+
     const sentAt = new Date();
     const id = makeMessageId(sentAt);
     const outboundMessageId = `<${id}@${env.MAIL_DOMAIN}>`;
@@ -654,6 +690,11 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         text,
         html,
         headers,
+        attachments: attachments.map(({ filename, mimeType, base64 }) => ({
+          filename,
+          mimeType,
+          base64,
+        })),
       });
     } catch (error) {
       if (error instanceof SendError) {
@@ -690,7 +731,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       body_text: text,
       body_html: html,
       raw_key: null,
-      has_attachments: false,
+      has_attachments: attachments.length > 0,
       size_bytes: new TextEncoder().encode(text + html).byteLength,
       is_read: true,
       is_starred: false,
@@ -701,7 +742,32 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     };
     await db.set("messages", id, record as unknown as Record<string, unknown>);
 
-    return json({ ok: true, id, thread_id: threadId });
+    // 보낸 메일에서도 첨부를 다시 열 수 있도록 R2 에 보관한다.
+    // 발송은 이미 끝났으므로, 여기서 실패해도 발송 자체를 되돌리지 않는다.
+    for (const att of attachments) {
+      try {
+        const attId = crypto.randomUUID();
+        const key = `att/${from}/${id}/${attId}`;
+        await env.BLOBS.put(key, base64ToBytes(att.base64), {
+          httpMetadata: { contentType: att.mimeType },
+        });
+        await db.set("attachments", attId, {
+          id: attId,
+          message_id: id,
+          mailbox: from,
+          filename: att.filename,
+          mime_type: att.mimeType,
+          size_bytes: att.bytes,
+          disposition: "attachment",
+          content_id: null,
+          r2_key: key,
+        });
+      } catch (error) {
+        console.error(`보낸 메일 첨부 보관 실패 (${att.filename})`, error);
+      }
+    }
+
+    return json({ ok: true, id, thread_id: threadId, attachments: attachments.length });
   }
 
   return bad(`알 수 없는 경로: ${method} ${path}`, 404);

@@ -310,3 +310,30 @@ test("auto 는 RESEND_API_KEY 유무로 경로를 정한다", async () => {
   assert.equal(resolveProvider({ MAIL_PROVIDER: "cloudflare", RESEND_API_KEY: "k" }), "cloudflare");
   assert.equal(resolveProvider({ MAIL_PROVIDER: "resend" }), "resend");
 });
+
+test("컬렉션 접두사로 개발/운영 데이터를 분리한다", async () => {
+  const { Firestore } = await import("../src/firestore.ts");
+  const sa = JSON.stringify({
+    project_id: "p", client_email: "a@b.com",
+    private_key: "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
+  });
+
+  const dev = new Firestore({ projectId: "p", database: "(default)", serviceAccountJson: sa, collectionPrefix: "dev_" });
+  assert.equal(dev.collection("messages"), "dev_messages");
+  assert.equal(dev.collection("users"), "dev_users");
+
+  const prod = new Firestore({ projectId: "p", database: "(default)", serviceAccountJson: sa });
+  assert.equal(prod.collection("messages"), "messages");
+  assert.equal(prod.collection("users"), "users");
+});
+
+test("첨부파일 base64 를 바이트로 정확히 되돌린다", async () => {
+  const { base64ToBytes } = await import("../src/sender.ts");
+  const original = new Uint8Array([0, 1, 2, 253, 254, 255, 65, 66]);
+  const b64 = Buffer.from(original).toString("base64");
+  assert.deepEqual(Array.from(base64ToBytes(b64)), Array.from(original));
+  // 텍스트도 왕복 확인
+  const text = "첨부 내용 테스트\n두 번째 줄";
+  const decoded = new TextDecoder().decode(base64ToBytes(Buffer.from(text).toString("base64")));
+  assert.equal(decoded, text);
+});

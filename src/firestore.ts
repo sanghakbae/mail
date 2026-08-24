@@ -193,11 +193,18 @@ export interface FirestoreConfig {
   projectId: string;
   database: string;
   serviceAccountJson: string;
+  /**
+   * 컬렉션 이름 앞에 붙일 접두사. 예: "dev_"
+   * 같은 프로젝트 안에서 개발/운영 데이터를 섞이지 않게 나누는 데 쓴다.
+   * (별도 데이터베이스 생성 권한이 없어도 되는 방식)
+   */
+  collectionPrefix?: string;
 }
 
 export class Firestore {
   private sa: ServiceAccount;
   private base: string;
+  private prefix: string;
 
   constructor(cfg: FirestoreConfig) {
     let parsed: ServiceAccount;
@@ -219,6 +226,12 @@ export class Firestore {
     const project = cfg.projectId || parsed.project_id;
     const db = cfg.database || "(default)";
     this.base = `https://firestore.googleapis.com/v1/projects/${project}/databases/${encodeURIComponent(db)}/documents`;
+    this.prefix = cfg.collectionPrefix ?? "";
+  }
+
+  /** 접두사가 붙은 실제 컬렉션 이름 */
+  collection(name: string): string {
+    return this.prefix + name;
   }
 
   private async request(
@@ -251,7 +264,10 @@ export class Firestore {
 
   /** 문서 하나 읽기. 없으면 null */
   async get(collection: string, id: string): Promise<Record<string, unknown> | null> {
-    const doc = (await this.request("GET", `/${collection}/${encodeURIComponent(id)}`)) as FsDocument | null;
+    const doc = (await this.request(
+      "GET",
+      `/${this.collection(collection)}/${encodeURIComponent(id)}`,
+    )) as FsDocument | null;
     if (!doc) return null;
     return { id: docId(doc.name), ...fieldsToObject(doc.fields) };
   }
@@ -259,7 +275,7 @@ export class Firestore {
   /** ID 를 지정해 문서 생성 (있으면 덮어쓴다) */
   async set(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
     // PATCH + updateMask 없이 보내면 전체 덮어쓰기가 된다
-    await this.request("PATCH", `/${collection}/${encodeURIComponent(id)}`, {
+    await this.request("PATCH", `/${this.collection(collection)}/${encodeURIComponent(id)}`, {
       fields: objectToFields(data),
     });
   }
@@ -268,14 +284,14 @@ export class Firestore {
   async update(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
     await this.request(
       "PATCH",
-      `/${collection}/${encodeURIComponent(id)}`,
+      `/${this.collection(collection)}/${encodeURIComponent(id)}`,
       { fields: objectToFields(data) },
       { "updateMask.fieldPaths": Object.keys(data) },
     );
   }
 
   async delete(collection: string, id: string): Promise<void> {
-    await this.request("DELETE", `/${collection}/${encodeURIComponent(id)}`);
+    await this.request("DELETE", `/${this.collection(collection)}/${encodeURIComponent(id)}`);
   }
 
   /**
@@ -296,7 +312,7 @@ export class Firestore {
     }));
 
     const structuredQuery: Record<string, unknown> = {
-      from: [{ collectionId: collection }],
+      from: [{ collectionId: this.collection(collection) }],
     };
     if (filters.length === 1) {
       structuredQuery.where = filters[0];
@@ -328,7 +344,7 @@ export class Firestore {
     do {
       const query: Record<string, string> = { pageSize: String(pageSize) };
       if (pageToken) query.pageToken = pageToken;
-      const res = (await this.request("GET", `/${collection}`, undefined, query)) as
+      const res = (await this.request("GET", `/${this.collection(collection)}`, undefined, query)) as
         | { documents?: FsDocument[]; nextPageToken?: string }
         | null;
       if (!res) break;

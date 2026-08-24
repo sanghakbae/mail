@@ -9,6 +9,13 @@
  *   MAIL_PROVIDER=resend      → Resend REST API (도메인 인증 후 아무 주소로나)
  */
 
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  /** base64 로 인코딩된 파일 내용 */
+  base64: string;
+}
+
 export interface OutgoingMail {
   from: string;
   fromName?: string;
@@ -19,6 +26,7 @@ export interface OutgoingMail {
   html?: string;
   /** In-Reply-To / References 같은 스레딩 헤더 */
   headers?: Record<string, string>;
+  attachments?: OutgoingAttachment[];
 }
 
 export interface SendResult {
@@ -45,6 +53,14 @@ interface SenderEnv {
   RESEND_API_KEY?: string;
 }
 
+/** base64 → Uint8Array (Cloudflare 바인딩은 원시 바이트를 받는다) */
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 /** "이름 <주소>" 형태로 만든다. 이름에 콤마/따옴표가 있으면 인용한다. */
 function formatAddress(email: string, name?: string): string {
   if (!name) return email;
@@ -63,6 +79,17 @@ async function sendViaCloudflare(env: SenderEnv, mail: OutgoingMail): Promise<Se
       ...(mail.text ? { text: mail.text } : {}),
       ...(mail.html ? { html: mail.html } : {}),
       ...(mail.headers && Object.keys(mail.headers).length ? { headers: mail.headers } : {}),
+      ...(mail.attachments?.length
+        ? {
+            // 바인딩은 base64 가 아니라 원시 바이트를 받는다
+            attachments: mail.attachments.map((a) => ({
+              content: base64ToBytes(a.base64),
+              filename: a.filename,
+              type: a.mimeType,
+              disposition: "attachment",
+            })),
+          }
+        : {}),
     } as Parameters<SendEmail["send"]>[0]);
     return { provider: "cloudflare", id: (response as { messageId?: string })?.messageId ?? null };
   } catch (error) {
@@ -98,6 +125,16 @@ async function sendViaResend(env: SenderEnv, mail: OutgoingMail): Promise<SendRe
       ...(mail.text ? { text: mail.text } : {}),
       ...(mail.html ? { html: mail.html } : {}),
       ...(mail.headers && Object.keys(mail.headers).length ? { headers: mail.headers } : {}),
+      ...(mail.attachments?.length
+        ? {
+            // Resend 는 base64 문자열을 받는다
+            attachments: mail.attachments.map((a) => ({
+              filename: a.filename,
+              content: a.base64,
+              content_type: a.mimeType,
+            })),
+          }
+        : {}),
     }),
   });
 

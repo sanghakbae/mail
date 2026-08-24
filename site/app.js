@@ -680,6 +680,27 @@ async function patchMessage(id, patch) {
   }
 }
 
+
+/* ---------- 첨부파일 ---------- */
+
+const MAX_ATTACH_FILES = 10;
+const MAX_ATTACH_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACH_TOTAL_BYTES = 20 * 1024 * 1024;
+
+/** File → base64 (data URL 의 접두사를 떼어낸다) */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error(`${file.name} 을 읽을 수 없습니다.`));
+    reader.readAsDataURL(file);
+  });
+}
+
 /* ================= 작성 (리치 에디터) ================= */
 
 const TOOLS = [
@@ -826,6 +847,13 @@ function openCompose({ replyTo } = {}) {
         </div>
       </div>
 
+      <div class="attach-row">
+        <input type="file" id="c-files" multiple hidden />
+        <button type="button" class="btn btn-sm" id="c-attach">📎 첨부</button>
+        <span class="attach-info" id="c-attach-info"></span>
+      </div>
+      <div class="attach-list" id="c-attach-list"></div>
+
       <p class="error" id="c-error"></p>
       <div class="modal-actions">
         <button type="button" class="btn" id="c-cancel">취소</button>
@@ -848,6 +876,56 @@ function openCompose({ replyTo } = {}) {
   $("#c-close").addEventListener("click", close);
   backdrop.addEventListener("mousedown", (event) => {
     if (event.target === backdrop) close();
+  });
+
+  // ---- 첨부파일 ----
+  const attached = []; // { file, name, size, type }
+
+  const renderAttachments = () => {
+    const list = $("#c-attach-list");
+    const total = attached.reduce((sum, a) => sum + a.size, 0);
+    $("#c-attach-info").textContent = attached.length
+      ? `${attached.length}개 · ${formatBytes(total)} / 20MB`
+      : "";
+    list.innerHTML = "";
+    attached.forEach((a, index) => {
+      const chip = document.createElement("span");
+      chip.className = "attach-chip";
+      chip.innerHTML =
+        `<span class="attach-name">${esc(a.name)}</span>` +
+        `<span class="attach-size">${esc(formatBytes(a.size))}</span>` +
+        `<button type="button" class="attach-x" aria-label="제거">✕</button>`;
+      chip.querySelector(".attach-x").addEventListener("click", () => {
+        attached.splice(index, 1);
+        renderAttachments();
+      });
+      list.appendChild(chip);
+    });
+  };
+
+  $("#c-attach").addEventListener("click", () => $("#c-files").click());
+  $("#c-files").addEventListener("change", (event) => {
+    const errorEl = $("#c-error");
+    errorEl.textContent = "";
+    for (const file of Array.from(event.target.files || [])) {
+      if (attached.length >= MAX_ATTACH_FILES) {
+        errorEl.textContent = `첨부파일은 최대 ${MAX_ATTACH_FILES}개까지 가능합니다.`;
+        break;
+      }
+      if (file.size > MAX_ATTACH_FILE_BYTES) {
+        errorEl.textContent = `${file.name} 이 너무 큽니다 (파일당 최대 10MB).`;
+        continue;
+      }
+      const total = attached.reduce((sum, a) => sum + a.size, 0);
+      if (total + file.size > MAX_ATTACH_TOTAL_BYTES) {
+        errorEl.textContent = "첨부파일 합계가 20MB 를 넘습니다.";
+        continue;
+      }
+      attached.push({ file, name: file.name, size: file.size, type: file.type });
+    }
+    // 같은 파일을 다시 고를 수 있게 초기화한다
+    event.target.value = "";
+    renderAttachments();
   });
 
   // 툴바
@@ -905,8 +983,18 @@ function openCompose({ replyTo } = {}) {
     }
 
     btn.disabled = true;
-    btn.textContent = "보내는 중…";
+    btn.textContent = attached.length ? "첨부 읽는 중…" : "보내는 중…";
     try {
+      const attachments = [];
+      for (const a of attached) {
+        attachments.push({
+          filename: a.name,
+          mime_type: a.type || "application/octet-stream",
+          content_base64: await fileToBase64(a.file),
+        });
+      }
+      btn.textContent = "보내는 중…";
+
       await api("/api/send", {
         method: "POST",
         body: JSON.stringify({
@@ -916,6 +1004,7 @@ function openCompose({ replyTo } = {}) {
           subject: $("#c-subject").value,
           text,
           html,
+          ...(attachments.length ? { attachments } : {}),
           ...(replyTo ? { reply_to_message_id: replyTo.id } : {}),
         }),
       });

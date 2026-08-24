@@ -5,11 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "wrangler dev --port 8787",
-    "dev:ui": "npm run sync:dev && python3 -m http.server 8080 --directory site",
+    "dev:ui": "python3 -m http.server 8080 --directory site",
     "test": "node --test --experimental-strip-types \"tests/*.test.ts\"",
     "typecheck": "tsc --noEmit -p .",
-    "deploy": "wrangler deploy",
-    "sync:dev": "sed 's#\\./config\\.js#./config.dev.js#' site/index.html > site/index.dev.html"
+    "deploy": "wrangler deploy"
   },
   "keywords": [],
   "author": "",

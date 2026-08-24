@@ -30,8 +30,11 @@ jobs:
       - name: 정적 파일 준비
         run: |
           mkdir -p _dist
-          # 로컬 개발용 파일은 배포에서 제외한다
-          rsync -a --exclude 'index.dev.html' --exclude 'config.dev.js' site/ _dist/
+          rsync -a site/ _dist/
+          # 배포마다 ?v=dev 를 커밋 해시로 바꿔 브라우저 캐시를 무효화한다.
+          # (이게 없으면 사용자가 예전 app.js/style.css 를 계속 쓴다)
+          sed -i "s|?v=dev|?v=${GITHUB_SHA::8}|g" _dist/index.html
+          grep -o '?v=[0-9a-z]*' _dist/index.html | sort -u
           # 커스텀 도메인
           echo "mail.sanghak.kr" > _dist/CNAME
           # SPA 라우팅은 쓰지 않지만, 404 는 진입점으로 되돌린다
