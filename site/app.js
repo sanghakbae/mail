@@ -110,7 +110,18 @@ const isNarrow = () => window.matchMedia("(max-width: 700px)").matches;
 const hasDrawer = () => window.matchMedia("(max-width: 1000px)").matches;
 
 function setReading(on) {
-  $("#app").classList.toggle("reading", Boolean(on) && isNarrow());
+  const app = $("#app");
+  app.classList.toggle("reading", Boolean(on) && isNarrow());
+  // 넓은 화면에서는 읽기 창 자체를 열고 닫아 빈 영역이 폭을 차지하지 않게 한다
+  app.classList.toggle("has-msg", Boolean(on));
+  if (!on) {
+    state.selectedId = null;
+    $("#reader").innerHTML = `
+      <div class="empty">
+        <p>읽을 메일을 선택하세요.</p>
+        <p class="hint">j / k 로 이동, Enter 로 열기, e 읽음, s 중요, # 휴지통</p>
+      </div>`;
+  }
 }
 
 function setDrawer(open) {
@@ -430,26 +441,34 @@ function renderMessage(msg, attachments) {
 
   $("#reader").innerHTML = `
     <div class="read-head">
-      <h2>${esc(msg.subject)}</h2>
+      <div class="read-top">
+        <button class="icon-btn drawer-only" id="back" aria-label="목록으로">←</button>
+        <h2>${esc(msg.subject)}</h2>
+      </div>
+
       <div class="read-from">
         <span class="avatar" style="background:${color}">${esc(initial)}</span>
         <div class="read-from-text">
-          <div class="read-from-name">${esc(msg.from_name || msg.from_addr)}</div>
-          <div class="meta">${esc(msg.from_addr)}</div>
+          <div class="read-from-name">
+            ${esc(msg.from_name || msg.from_addr)}
+            <span class="read-from-addr">${esc(msg.from_addr)}</span>
+          </div>
+          <div class="meta">
+            ${to ? `→ ${esc(to)}` : ""}${cc ? ` · 참조 ${esc(cc)}` : ""}
+            · ${esc(new Date(msg.received_at).toLocaleString("ko-KR", {
+              year: "2-digit", month: "numeric", day: "numeric",
+              hour: "2-digit", minute: "2-digit",
+            }))}
+          </div>
         </div>
       </div>
-      <div class="meta">받는 사람: ${esc(to)}${cc ? ` · 참조: ${esc(cc)}` : ""}</div>
-      <div class="meta" style="margin-bottom:12px">
-        ${esc(new Date(msg.received_at).toLocaleString("ko-KR"))}
-        · ${esc(formatBytes(msg.size_bytes))} · ${esc(msg.mailbox)}
-      </div>
+
       <div class="actions">
-        <button class="btn drawer-only" id="back">← 목록</button>
         <button class="btn btn-primary" id="reply">답장</button>
-        <button class="btn" id="star">${msg.is_starred ? "중요 해제" : "중요 표시"}</button>
-        <button class="btn" id="trash">${msg.is_trashed ? "복원" : "휴지통"}</button>
-        <button class="btn" id="spam">${msg.is_spam ? "스팸 해제" : "스팸"}</button>
-        ${msg.raw_key ? `<a class="btn" href="${CFG.apiBase}/api/messages/${encodeURIComponent(msg.id)}/raw" target="_blank" rel="noopener">원본</a>` : ""}
+        <button class="btn btn-sm" id="star">${msg.is_starred ? "중요 해제" : "중요"}</button>
+        <button class="btn btn-sm" id="trash">${msg.is_trashed ? "복원" : "휴지통"}</button>
+        <button class="btn btn-sm" id="spam">${msg.is_spam ? "스팸 해제" : "스팸"}</button>
+        ${msg.raw_key ? `<a class="btn btn-sm" href="${CFG.apiBase}/api/messages/${encodeURIComponent(msg.id)}/raw" target="_blank" rel="noopener">원본</a>` : ""}
       </div>
     </div>
     <div class="read-body" id="read-body"></div>
@@ -501,8 +520,7 @@ async function patchMessage(id, patch) {
     if (state.selectedId === id && !$("#app").classList.contains("reading")) {
       // 목록에서 사라졌으면 본문도 비운다
       if (!state.messages.some((m) => m.id === id)) {
-        $("#reader").innerHTML = `<div class="empty">읽을 메일을 선택하세요.</div>`;
-        state.selectedId = null;
+        setReading(false);
       } else {
         await openMessage(id);
       }
