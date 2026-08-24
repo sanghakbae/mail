@@ -42,7 +42,12 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+html, body {
+  height: 100%;
+  /* 어떤 자식이 넘쳐도 페이지가 가로로 밀리지 않게 (fixed 요소가 잘리는 원인) */
+  max-width: 100%;
+  overflow-x: hidden;
+}
 
 body {
   margin: 0;
@@ -237,6 +242,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* ================= 레이아웃 ================= */
 
 #app {
+  max-width: 100%;
   display: grid;
   /* 기본: 목록이 남은 폭을 전부 쓴다. 메일을 열면 3단으로 갈라진다. */
   grid-template-columns: 170px 1fr;
@@ -249,7 +255,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 #app:not(.has-msg) .read-pane { display: none; }
 #app.has-msg { grid-template-columns: 170px minmax(320px, 420px) 1fr; }
 
-#sidebar, .list-pane, .read-pane { min-width: 0; }
+#sidebar, .list-pane, .read-pane { min-width: 0; max-width: 100%; }
 
 /* ---------- 사이드바 ---------- */
 
@@ -417,7 +423,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .msg-main { min-width: 0; }
-.msg-line1 { display: flex; align-items: baseline; gap: 8px; }
+.msg-line1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .msg-who {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -507,7 +513,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .read-body { padding: 16px 20px 44px; overflow-wrap: break-word; }
 .read-body pre { white-space: pre-wrap; font-family: inherit; margin: 0; font-size: 14px; }
 .read-body iframe {
-  width: 100%; min-height: 58vh;
+  /*
+   * iOS Safari 는 iframe 에 width:100% 를 무시하고 콘텐츠 폭으로 늘린다.
+   * width:1px + min-width:100% 로 강제해야 화면 폭에 맞는다.
+   */
+  display: block;
+  width: 1px;
+  min-width: 100%;
+  max-width: 100%;
+  min-height: 58vh;
   border: none; background: #fff; border-radius: 10px;
 }
 
