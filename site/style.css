@@ -702,6 +702,11 @@ table.grid tr:last-child td { border-bottom: none; }
   }
   #app.drawer-open #sidebar { transform: none; }
   .compose-btn { display: none; }
+
+  /* 터치 화면에서는 탭 영역을 44px 에 가깝게 확보한다 */
+  #sidebar { padding: 12px 10px; }
+  .nav-item { padding: 11px 12px; font-size: 13.5px; }
+  .nav-group { gap: 2px; }
 }
 
 /* 모바일: 목록 ↔ 본문 전환, FAB 노출 */
@@ -723,7 +728,11 @@ table.grid tr:last-child td { border-bottom: none; }
 
   /* 손가락으로 누르기 좋게 */
   :root { --row-h: 60px; }
-  .msg-row { padding: 10px 12px; }
+  .msg-row { padding: 10px 10px; }
+
+  /* 체크박스 탭 영역 확대 */
+  .check { width: 38px; height: 38px; }
+  .check input { width: 18px; height: 18px; }
   .icon-btn { width: 38px; height: 38px; }
   .btn { padding: 7px 12px; }
 

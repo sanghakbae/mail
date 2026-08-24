@@ -637,14 +637,44 @@ async function execTool(cmd) {
   document.execCommand(cmd, false);
 }
 
+/**
+ * 인용할 HTML 에서 위험하거나 본문이 아닌 요소를 걷어낸다.
+ *
+ * 특히 <style> 은 textContent 로 읽으면 CSS 규칙이 본문에 섞여 들어간다.
+ * (예: "p{margin-top:0px}" 이 메일 내용으로 보이던 버그)
+ */
+function sanitizeQuoted(html) {
+  const box = document.createElement("div");
+  box.innerHTML = html;
+  for (const el of box.querySelectorAll("style, script, meta, link, title, head, noscript")) {
+    el.remove();
+  }
+  // 이벤트 핸들러와 javascript: 링크 제거
+  for (const el of box.querySelectorAll("*")) {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) el.removeAttribute(attr.name);
+      if ((name === "href" || name === "src") && /^\s*javascript:/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+  return box.innerHTML;
+}
+
 /** 에디터 DOM 을 평문으로 — HTML 만 보는 클라이언트가 없도록 text 도 함께 보낸다 */
 function editorToText(el) {
   const clone = el.cloneNode(true);
+  // style/script 의 textContent 가 본문으로 새어 들어가지 않게 먼저 지운다
+  for (const junk of clone.querySelectorAll("style, script, noscript")) junk.remove();
   for (const br of clone.querySelectorAll("br")) br.replaceWith("\n");
-  for (const block of clone.querySelectorAll("p, div, li, blockquote")) {
+  for (const block of clone.querySelectorAll("p, div, li, blockquote, tr")) {
     block.append("\n");
   }
-  return (clone.textContent || "").replace(/\n{3,}/g, "\n\n").trim();
+  return (clone.textContent || "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function openCompose({ replyTo } = {}) {
@@ -656,7 +686,9 @@ function openCompose({ replyTo } = {}) {
   const quoted = replyTo
     ? `<br><br><div>--- ${esc(replyTo.from_name || replyTo.from_addr)} 님이 쓴 글 ---</div>` +
       `<blockquote>${
-        replyTo.body_html || esc(replyTo.body_text || replyTo.snippet || "").replace(/\n/g, "<br>")
+        replyTo.body_html
+          ? sanitizeQuoted(replyTo.body_html)
+          : esc(replyTo.body_text || replyTo.snippet || "").replace(/\n/g, "<br>")
       }</blockquote>`
     : "";
 
