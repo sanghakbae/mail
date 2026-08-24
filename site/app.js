@@ -276,15 +276,19 @@ function renderMailboxes() {
 
   const all = document.createElement("button");
   all.className = "nav-item" + (state.mailbox === "" ? " active" : "");
-  all.innerHTML = `<span class="name">전체</span>`;
+  all.innerHTML = `<span class="name">모든 주소</span>`;
+  all.title = `${CFG.domain} 의 모든 주소`;
   all.addEventListener("click", () => pick(""));
   host.appendChild(all);
 
   for (const box of state.mailboxes) {
+    const localPart = String(box.address).split("@")[0];
     const btn = document.createElement("button");
     btn.className = "nav-item" + (state.mailbox === box.address ? " active" : "");
+    // 로그인 계정과 헷갈리지 않게 전체 주소를 그대로 보여준다
     btn.title = box.address;
-    btn.innerHTML = `<span class="name">${esc(box.label || box.address)}</span>`;
+    btn.innerHTML =
+      `<span class="name">${esc(localPart)}<span class="addr-domain">@${esc(CFG.domain)}</span></span>`;
     btn.addEventListener("click", () => pick(box.address));
     host.appendChild(btn);
   }
@@ -1305,7 +1309,7 @@ async function boot() {
   }
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
-  $("#who").textContent = state.me.display_name || state.me.id;
+  $("#who").textContent = `${state.me.display_name || state.me.id} (${state.me.id})`;
   $("#open-admin").classList.toggle("hidden", !state.me.is_admin);
   renderFolders();
   await loadMailboxes();
