@@ -907,3 +907,29 @@ table.grid tr:last-child td { border-bottom: none; }
   .bulk-actions { gap: 4px; }
   .bulk-actions .btn { padding: 5px 8px; font-size: 12px; }
 }
+
+/* ================= iOS 자동 확대 방지 =================
+   iOS Safari 는 글자 크기가 16px 보다 작은 입력 칸에 포커스가 가면
+   화면을 강제로 확대한다. 확대된 배율은 사이트에 기억되므로 다음
+   접속 때도 확대된 상태로 열린다. 터치 기기에서는 모든 입력 칸을
+   16px 로 맞춰 확대가 일어날 여지를 없앤다.
+
+   개별 규칙(.search-wrap input, .compose-head > .field > input 등)이
+   선택자 우선순위상 더 강하므로 !important 로 일괄 고정한다. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: 16px !important;
+  }
+
+  /* 16px 로 커진 만큼 여백을 줄여 기존 높이에 가깝게 유지한다 */
+  .search-wrap input { padding: 4px 10px 4px 31px; }
+  .compose-head > .field > input,
+  .compose-head > .field > select { padding: 5px 9px; }
+  .field > input,
+  .field > textarea,
+  .field > select { padding: 6px 10px; }
+  .input-wrap input { padding: 7px 10px 7px 33px; }
+}
