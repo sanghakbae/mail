@@ -20,6 +20,9 @@ export interface User {
   display_name?: string;
   /** 이 사용자가 쓸 수 있는 주소. ["*"] 면 도메인 전체 */
   addresses?: string[];
+  /** 관리자 화면 접근 권한 */
+  is_admin?: boolean;
+  password_changed_at?: string;
   created_at?: string;
 }
 

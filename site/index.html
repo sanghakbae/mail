@@ -2,10 +2,10 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>sanghak.kr 메일</title>
     <meta name="description" content="sanghak.kr 도메인 웹메일" />
-    <meta name="theme-color" content="#c2510a" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./favicon.svg" />
@@ -26,8 +26,8 @@
           </svg>
         </div>
 
-        <h1>sanghak.kr 메일</h1>
-        <p class="sub">아이디와 비밀번호로 로그인하세요.</p>
+        <h1>메일 시스템</h1>
+        <p class="sub">sanghak.kr 웹메일에 로그인하세요.</p>
 
         <div class="field">
           <label for="login-id">아이디</label>
@@ -37,8 +37,7 @@
               <circle cx="12" cy="8" r="3.5" />
               <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
             </svg>
-            <input id="login-id" name="id" autocomplete="username"
-                   placeholder="admin" required autofocus />
+            <input id="login-id" name="id" autocomplete="username" required autofocus />
           </div>
         </div>
 
@@ -51,9 +50,8 @@
               <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
             </svg>
             <input id="login-pw" name="password" type="password"
-                   autocomplete="current-password" placeholder="••••••••" required />
-            <button type="button" class="peek" id="toggle-pw"
-                    aria-label="비밀번호 표시">보기</button>
+                   autocomplete="current-password" required />
+            <button type="button" class="peek" id="toggle-pw" aria-label="비밀번호 표시">보기</button>
           </div>
         </div>
 
@@ -63,50 +61,83 @@
 
         <p class="error" id="login-error" role="alert" aria-live="polite"></p>
       </form>
-
-      <p class="login-foot">sanghak.kr · Cloudflare Workers</p>
     </section>
 
     <!-- 메일함 -->
     <main id="app" class="hidden">
-      <aside>
+      <div class="scrim" id="scrim" hidden></div>
+
+      <aside id="sidebar">
         <div class="brand">
-          <div>
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" />
+              <path d="M3 5.5 12 13l9-7.5" />
+            </svg>
+          </span>
+          <span class="brand-text">
             <strong>메일 시스템</strong>
-            <div class="who" id="who"></div>
-          </div>
-          <button class="btn" id="logout" title="로그아웃">나가기</button>
+            <span class="who" id="who"></span>
+          </span>
+          <button class="icon-btn drawer-only" id="drawer-close" aria-label="닫기">✕</button>
         </div>
 
-        <button class="btn btn-primary btn-block" id="compose-btn">새 메일 쓰기</button>
+        <button class="btn btn-primary compose-btn" id="compose-btn">새 메일 쓰기</button>
 
-        <div class="nav-group">
-          <h3>폴더</h3>
-          <div id="folders"></div>
-        </div>
+        <nav class="nav-group" id="folders" aria-label="폴더"></nav>
 
         <div class="nav-group">
           <h3>메일 주소</h3>
           <div id="mailboxes"></div>
-          <button class="nav-item" id="add-mailbox">
+          <button class="nav-item nav-add" id="add-mailbox">
             <span class="name">+ 주소 추가</span>
           </button>
+        </div>
+
+        <div class="sidebar-foot">
+          <button class="nav-item" id="open-admin"><span class="name">관리자</span></button>
+          <button class="nav-item" id="logout"><span class="name">로그아웃</span></button>
         </div>
       </aside>
 
       <section class="list-pane">
-        <div class="toolbar">
-          <input type="search" id="search" placeholder="메일 검색" />
-          <button class="btn" id="refresh" title="새로고침">↻</button>
+        <header class="topbar">
+          <button class="icon-btn drawer-only" id="menu-btn" aria-label="메뉴">☰</button>
+          <div class="search-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" />
+            </svg>
+            <input type="search" id="search" placeholder="메일 검색" />
+          </div>
+          <button class="icon-btn" id="refresh" aria-label="새로고침">↻</button>
+        </header>
+
+        <div class="bulkbar" id="bulkbar" hidden>
+          <label class="check"><input type="checkbox" id="check-all" /></label>
+          <span class="bulk-count" id="bulk-count"></span>
+          <div class="bulk-actions">
+            <button class="btn btn-sm" data-bulk="read">읽음</button>
+            <button class="btn btn-sm" data-bulk="star">중요</button>
+            <button class="btn btn-sm" data-bulk="spam">스팸</button>
+            <button class="btn btn-sm" data-bulk="trash">휴지통</button>
+          </div>
         </div>
+
         <div id="list"></div>
       </section>
 
-      <section class="read-pane">
+      <section class="read-pane" id="read-pane">
         <div id="reader">
-          <div class="empty">읽을 메일을 선택하세요.</div>
+          <div class="empty">
+            <p>읽을 메일을 선택하세요.</p>
+            <p class="hint">j / k 로 이동, Enter 로 열기, e 보관, # 휴지통</p>
+          </div>
         </div>
       </section>
+
+      <button class="fab" id="fab-compose" aria-label="새 메일 쓰기">✎</button>
     </main>
 
     <script src="./app.js"></script>

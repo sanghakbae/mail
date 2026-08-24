@@ -142,6 +142,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       password_hash: await hashPassword(body.password),
       display_name: body.display_name ?? body.id,
       addresses: body.addresses ?? ["*"],
+      // 최초 계정은 관리자여야 관리자 화면에 들어갈 수 있다
+      is_admin: true,
       created_at: new Date().toISOString(),
     };
     await db.set("users", body.id, user as unknown as Record<string, unknown>);
@@ -186,6 +188,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       id: user.id,
       display_name: user.display_name ?? user.id,
       addresses: user.addresses ?? ["*"],
+      is_admin: Boolean(user.is_admin),
       domain: env.MAIL_DOMAIN,
     });
   }
@@ -215,6 +218,149 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       { ok: true },
       { headers: { "set-cookie": sessionCookie(token, cookieOptions(request, env)) } },
     );
+  }
+
+  // ================= 관리자 =================
+  if (path.startsWith("/api/admin/")) {
+    if (!user.is_admin) return bad("관리자 권한이 필요하다", 403);
+
+    // 계정 목록 (비밀번호 해시는 절대 내려보내지 않는다)
+    if (path === "/api/admin/users" && method === "GET") {
+      const rows = await db.list("users");
+      const users = rows.map((u) => ({
+        id: u.id,
+        display_name: u.display_name ?? u.id,
+        addresses: u.addresses ?? ["*"],
+        is_admin: Boolean(u.is_admin),
+        created_at: u.created_at ?? null,
+        password_changed_at: u.password_changed_at ?? null,
+      }));
+      users.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      return json({ users });
+    }
+
+    // 계정 생성
+    if (path === "/api/admin/users" && method === "POST") {
+      const body = (await request.json().catch(() => null)) as {
+        id?: string; password?: string; display_name?: string;
+        addresses?: string[]; is_admin?: boolean;
+      } | null;
+      if (!body?.id || !body.password) return bad("아이디와 비밀번호가 필요하다");
+      if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
+      const idError = validateDocId(body.id);
+      if (idError) return bad(`아이디를 쓸 수 없다: ${idError}`);
+      if (await db.get("users", body.id)) return bad("이미 있는 아이디다", 409);
+
+      await db.set("users", body.id, {
+        id: body.id,
+        password_hash: await hashPassword(body.password),
+        display_name: body.display_name || body.id,
+        addresses: body.addresses?.length ? body.addresses : ["*"],
+        is_admin: Boolean(body.is_admin),
+        created_at: new Date().toISOString(),
+      });
+      return json({ ok: true, id: body.id });
+    }
+
+    const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+
+    // 계정 수정
+    if (userMatch && method === "PATCH") {
+      const targetId = decodeURIComponent(userMatch[1]);
+      const target = await db.get("users", targetId);
+      if (!target) return bad("계정을 찾을 수 없다", 404);
+
+      const body = (await request.json().catch(() => null)) as {
+        password?: string; display_name?: string;
+        addresses?: string[]; is_admin?: boolean;
+      } | null;
+      if (!body) return bad("본문이 필요하다");
+
+      const patch: Record<string, unknown> = {};
+      if (typeof body.display_name === "string") patch.display_name = body.display_name || targetId;
+      if (Array.isArray(body.addresses)) {
+        patch.addresses = body.addresses.length ? body.addresses : ["*"];
+      }
+      if (typeof body.is_admin === "boolean") {
+        // 자기 자신의 관리자 권한은 뺄 수 없다 (관리자가 0명이 되는 상황 방지)
+        if (targetId === user.id && !body.is_admin) {
+          return bad("자기 자신의 관리자 권한은 해제할 수 없다");
+        }
+        patch.is_admin = body.is_admin;
+      }
+      if (body.password) {
+        if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
+        patch.password_hash = await hashPassword(body.password);
+        patch.password_changed_at = new Date().toISOString();
+      }
+      if (!Object.keys(patch).length) return bad("변경할 내용이 없다");
+
+      await db.update("users", targetId, patch);
+      return json({ ok: true, id: targetId });
+    }
+
+    // 계정 삭제
+    if (userMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(userMatch[1]);
+      if (targetId === user.id) return bad("자기 계정은 삭제할 수 없다");
+      if (!(await db.get("users", targetId))) return bad("계정을 찾을 수 없다", 404);
+      await db.delete("users", targetId);
+      return json({ ok: true, deleted: targetId });
+    }
+
+    // 통계
+    if (path === "/api/admin/stats" && method === "GET") {
+      // 규모가 커지면 집계 쿼리로 바꿔야 한다. 지금은 전체를 훑어 센다.
+      const messages = await db.list("messages");
+      const attachments = await db.list("attachments");
+
+      const perMailbox = new Map<string, { total: number; unread: number }>();
+      let inbox = 0, sent = 0, spam = 0, trash = 0, unread = 0;
+      for (const m of messages) {
+        const folder = String(m.folder ?? "");
+        if (folder === "inbox") inbox++;
+        else if (folder === "sent") sent++;
+        else if (folder === "spam") spam++;
+        else if (folder === "trash") trash++;
+        if (!m.is_read) unread++;
+
+        const key = String(m.mailbox ?? "(없음)");
+        const entry = perMailbox.get(key) ?? { total: 0, unread: 0 };
+        entry.total++;
+        if (!m.is_read) entry.unread++;
+        perMailbox.set(key, entry);
+      }
+
+      const attachmentBytes = attachments.reduce(
+        (sum, a) => sum + (Number(a.size_bytes) || 0), 0,
+      );
+
+      return json({
+        total: messages.length,
+        inbox, sent, spam, trash, unread,
+        attachments: attachments.length,
+        attachment_bytes: attachmentBytes,
+        per_mailbox: Array.from(perMailbox, ([mailbox, v]) => ({ mailbox, ...v }))
+          .sort((a, b) => b.total - a.total),
+      });
+    }
+
+    // 시스템 상태
+    if (path === "/api/admin/system" && method === "GET") {
+      return json({
+        mail_domain: env.MAIL_DOMAIN,
+        api_host: new URL(request.url).host,
+        firebase_project: env.FIREBASE_PROJECT_ID,
+        send_binding: Boolean(env.EMAIL),
+        r2_binding: Boolean(env.BLOBS),
+        session_secret: Boolean(env.SESSION_SECRET),
+        setup_token: Boolean(env.SETUP_TOKEN),
+        fallback_forward: env.FALLBACK_FORWARD ?? null,
+        allowed_origins: (env.ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
+      });
+    }
+
+    return bad(`알 수 없는 관리자 경로: ${method} ${path}`, 404);
   }
 
   // ---- 메일함 목록 ----
