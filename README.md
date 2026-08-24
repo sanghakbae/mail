@@ -155,11 +155,50 @@ npm test         # 인증·파싱·변환 단위 테스트
 npm run typecheck
 ```
 
+## 발송 경로
+
+Cloudflare Email Sending 은 도메인이 온보딩되기 전까지 **샌드박스**로 동작한다.
+Email Routing 에 검증된 목적지 주소로만 보낼 수 있고, 그 외에는
+`E_RECIPIENT_NOT_ALLOWED: destination address is not a verified address` 가 난다.
+
+그래서 발송 경로를 교체할 수 있게 분리했다 (`src/sender.ts`).
+
+| `MAIL_PROVIDER` | 동작 |
+| --- | --- |
+| `auto` (기본) | `RESEND_API_KEY` 시크릿이 있으면 Resend, 없으면 Cloudflare 바인딩 |
+| `resend` | 항상 Resend REST API |
+| `cloudflare` | 항상 send_email 바인딩 |
+
+### Resend 로 전환하기
+
+1. [resend.com](https://resend.com) 에 가입하고 **Domains → Add Domain** 으로
+   `sanghak.kr` 을 추가한다.
+2. Resend 가 알려주는 DNS 레코드(SPF TXT, DKIM CNAME/TXT)를 Cloudflare DNS 에 넣는다.
+   기존 수신용 MX·SPF 는 건드리지 않는다 — 발송용 레코드만 추가한다.
+3. API 키를 발급받아 시크릿으로 등록한다:
+   ```bash
+   wrangler secret put RESEND_API_KEY
+   ```
+4. 끝. `MAIL_PROVIDER=auto` 이므로 키가 등록되는 순간 전환된다 (재배포 불필요).
+
+관리자 → 시스템 탭에서 현재 어느 경로가 쓰이는지 확인할 수 있다.
+
+### 임시 방편 (플랜 변경 없이)
+
+특정 주소로만 보내면 되는 경우, 그 주소를 Email Routing 목적지로 등록하면
+Cloudflare 경로로도 발송된다. 등록하면 해당 주소로 인증 메일이 가고,
+링크를 클릭해야 활성화된다.
+
+```bash
+wrangler email routing addresses create someone@example.com
+wrangler email routing addresses list
+```
+
 ## 알려진 제약
 
-- **발송에는 Workers 유료 플랜이 필요하다.** Cloudflare Email Sending 은 유료 플랜 전용이라,
-  Free 플랜에서는 `wrangler email sending enable` 이 `Unauthorized (2036)` 로 실패한다.
-  수신은 Free 플랜에서도 동작한다.
+- **Cloudflare 경로로는 검증된 주소로만 발송된다.** 도메인 온보딩(`wrangler email sending enable`)이
+  Free 플랜에서 `Unauthorized (2036)` 로 막힌다. 아무 주소로나 보내려면 Workers 유료 플랜으로
+  온보딩하거나, 위 "발송 경로" 절대로 Resend 를 쓴다. 수신은 Free 플랜에서도 정상이다.
 - **검색은 전문 검색이 아니다.** Firestore 에 전문 색인이 없어, 최근 500 건을 가져와
   메모리에서 걸러낸다. 메일이 많아지면 외부 검색 색인이 필요하다.
 - **IMAP/SMTP 클라이언트로는 접속할 수 없다.** 브라우저 웹메일 전용이다.

@@ -1257,6 +1257,11 @@ async function renderAdminSystem(host) {
           <tr><th>메일 도메인</th><td>${esc(s.mail_domain)}</td></tr>
           <tr><th>API 호스트</th><td>${esc(s.api_host)}</td></tr>
           <tr><th>Firestore 프로젝트</th><td>${esc(s.firebase_project)}</td></tr>
+          <tr><th>발송 경로</th><td>${esc(s.mail_provider)}${
+            s.mail_provider === "resend"
+              ? ` · API 키 ${s.resend_key ? "정상" : "미설정"}`
+              : " · 검증된 주소로만 발송 가능 (샌드박스)"
+          }</td></tr>
           <tr><th>발송 바인딩</th><td>${yn(s.send_binding)}</td></tr>
           <tr><th>첨부 저장소 (R2)</th><td>${yn(s.r2_binding)}</td></tr>
           <tr><th>세션 시크릿</th><td>${yn(s.session_secret)}</td></tr>

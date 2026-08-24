@@ -207,3 +207,106 @@ test("Firestore 예약 ID 는 미리 거부한다", async () => {
   assert.ok(validateDocId(".."));
   assert.ok(validateDocId("x".repeat(1501)));
 });
+
+test("발송 어댑터는 provider 설정에 따라 경로를 고른다", async () => {
+  const { sendMail, SendError } = await import("../src/sender.ts");
+
+  // resend 경로: API 키가 없으면 설정 오류를 던진다
+  await assert.rejects(
+    () => sendMail({ MAIL_PROVIDER: "resend" }, {
+      from: "a@sanghak.kr", to: ["b@example.com"], subject: "s", text: "t",
+    }),
+    (err) => err instanceof SendError && err.code === "E_CONFIG_MISSING",
+  );
+
+  // 알 수 없는 provider
+  await assert.rejects(
+    () => sendMail({ MAIL_PROVIDER: "nope" }, {
+      from: "a@sanghak.kr", to: ["b@example.com"], subject: "s", text: "t",
+    }),
+    (err) => err instanceof SendError && err.code === "E_CONFIG_INVALID",
+  );
+
+  // cloudflare 경로: 바인딩 오류를 SendError 로 감싼다
+  const failingBinding = {
+    send: () => Promise.reject(Object.assign(new Error("nope"), { code: "E_RECIPIENT_NOT_ALLOWED" })),
+  };
+  await assert.rejects(
+    () => sendMail({ EMAIL: failingBinding }, {
+      from: "a@sanghak.kr", to: ["b@example.com"], subject: "s", text: "t",
+    }),
+    (err) =>
+      err instanceof SendError &&
+      err.code === "E_RECIPIENT_NOT_ALLOWED" &&
+      err.provider === "cloudflare",
+  );
+});
+
+test("Resend 요청은 이름을 포함한 from 형식으로 보낸다", async () => {
+  const { sendMail } = await import("../src/sender.ts");
+  const origFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = (url, opts) => {
+    captured = { url: String(url), body: JSON.parse(opts.body), auth: opts.headers.authorization };
+    return Promise.resolve(new Response(JSON.stringify({ id: "re_123" }), { status: 200 }));
+  };
+  try {
+    const result = await sendMail(
+      { MAIL_PROVIDER: "resend", RESEND_API_KEY: "test-key" },
+      {
+        from: "hello@sanghak.kr",
+        fromName: "배상학",
+        to: ["a@example.com"],
+        cc: ["b@example.com"],
+        subject: "제목",
+        text: "본문",
+        html: "<p>본문</p>",
+        headers: { "In-Reply-To": "<x@y>" },
+      },
+    );
+    assert.equal(result.provider, "resend");
+    assert.equal(result.id, "re_123");
+    assert.equal(captured.url, "https://api.resend.com/emails");
+    assert.equal(captured.auth, "Bearer test-key");
+    assert.equal(captured.body.from, "배상학 <hello@sanghak.kr>");
+    assert.deepEqual(captured.body.to, ["a@example.com"]);
+    assert.deepEqual(captured.body.cc, ["b@example.com"]);
+    assert.equal(captured.body.headers["In-Reply-To"], "<x@y>");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Resend 오류 응답은 SendError 로 변환된다", async () => {
+  const { sendMail, SendError } = await import("../src/sender.ts");
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ statusCode: 403, name: "validation_error", message: "도메인 미인증" }),
+        { status: 403 },
+      ),
+    );
+  try {
+    await assert.rejects(
+      () => sendMail({ MAIL_PROVIDER: "resend", RESEND_API_KEY: "k" }, {
+        from: "a@sanghak.kr", to: ["b@example.com"], subject: "s", text: "t",
+      }),
+      (err) =>
+        err instanceof SendError && err.code === "validation_error" && err.provider === "resend",
+    );
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("auto 는 RESEND_API_KEY 유무로 경로를 정한다", async () => {
+  const { resolveProvider } = await import("../src/sender.ts");
+  assert.equal(resolveProvider({}), "cloudflare");
+  assert.equal(resolveProvider({ RESEND_API_KEY: "k" }), "resend");
+  assert.equal(resolveProvider({ MAIL_PROVIDER: "auto" }), "cloudflare");
+  assert.equal(resolveProvider({ MAIL_PROVIDER: "auto", RESEND_API_KEY: "k" }), "resend");
+  // 명시 설정이 auto 판단을 이긴다
+  assert.equal(resolveProvider({ MAIL_PROVIDER: "cloudflare", RESEND_API_KEY: "k" }), "cloudflare");
+  assert.equal(resolveProvider({ MAIL_PROVIDER: "resend" }), "resend");
+});

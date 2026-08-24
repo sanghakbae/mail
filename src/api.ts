@@ -6,6 +6,7 @@
 
 import { Firestore } from "./firestore";
 import { validateDocId } from "./validate";
+import { resolveProvider, SendError, sendMail } from "./sender";
 import {
   canUseAddress,
   clearCookie,
@@ -41,6 +42,10 @@ export interface Env {
   COOKIE_DOMAIN?: string;
   /** 수신 저장이 실패했을 때 메일을 넘길 검증된 주소 (유실 방지 안전망) */
   FALLBACK_FORWARD?: string;
+  /** 발송 경로: "cloudflare" (기본) 또는 "resend" */
+  MAIL_PROVIDER?: string;
+  /** MAIL_PROVIDER=resend 일 때 필요 */
+  RESEND_API_KEY?: string;
 }
 
 const json = (data: unknown, init: ResponseInit = {}) =>
@@ -352,6 +357,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         api_host: new URL(request.url).host,
         firebase_project: env.FIREBASE_PROJECT_ID,
         send_binding: Boolean(env.EMAIL),
+        mail_provider: resolveProvider(env),
+        mail_provider_setting: env.MAIL_PROVIDER ?? "auto",
+        resend_key: Boolean(env.RESEND_API_KEY),
         r2_binding: Boolean(env.BLOBS),
         session_secret: Boolean(env.SESSION_SECRET),
         setup_token: Boolean(env.SETUP_TOKEN),
@@ -632,16 +640,26 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const outboundMessageId = `<${id}@${env.MAIL_DOMAIN}>`;
 
     try {
-      await env.EMAIL.send({
+      await sendMail(env, {
+        from,
+        fromName: user.display_name ?? from,
         to: toList,
-        ...(ccList.length ? { cc: ccList } : {}),
-        from: { email: from, name: user.display_name ?? from },
+        cc: ccList,
         subject,
-        ...(text ? { text } : {}),
-        ...(html ? { html } : {}),
-        ...(Object.keys(headers).length ? { headers } : {}),
-      } as Parameters<SendEmail["send"]>[0]);
+        text,
+        html,
+        headers,
+      });
     } catch (error) {
+      if (error instanceof SendError) {
+        // 샌드박스 제한은 원인이 분명하니 안내를 덧붙인다
+        const hint =
+          error.code === "E_RECIPIENT_NOT_ALLOWED"
+            ? " — Cloudflare Email Sending 이 아직 샌드박스 상태다." +
+              " 검증된 목적지 주소로만 보낼 수 있다."
+            : "";
+        return bad(`발송 실패 (${error.code}): ${error.message}${hint}`, 502);
+      }
       const err = error as { code?: string; message?: string };
       return bad(`발송 실패 (${err.code ?? "unknown"}): ${err.message ?? String(error)}`, 502);
     }

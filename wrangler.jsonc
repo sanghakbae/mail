@@ -29,11 +29,16 @@
     "ALLOWED_ORIGINS": "https://mail.sanghak.kr,http://localhost:8080",
     "COOKIE_DOMAIN": "sanghak.kr",
     // 수신 저장 실패 시 메일을 잃지 않도록 넘길 주소 (Email Routing 에 검증된 주소여야 한다)
-    "FALLBACK_FORWARD": "totoriverce@gmail.com"
+    "FALLBACK_FORWARD": "totoriverce@gmail.com",
+    // 발송 경로: "auto" | "resend" | "cloudflare"
+    // auto = RESEND_API_KEY 시크릿이 있으면 Resend, 없으면 Cloudflare 바인딩.
+    // 키만 등록하면 재배포 없이 전환된다.
+    "MAIL_PROVIDER": "auto"
   }
 
   // 시크릿 (wrangler secret put 으로 등록, 코드에 넣지 않는다):
   //   GCP_SERVICE_ACCOUNT  - Firebase 서비스 계정 JSON 전체
   //   SESSION_SECRET       - 세션 쿠키 서명용 랜덤 문자열
   //   SETUP_TOKEN          - 최초 관리자 계정 생성용 1회성 토큰
+  //   RESEND_API_KEY       - MAIL_PROVIDER=resend 일 때 필요
 }
