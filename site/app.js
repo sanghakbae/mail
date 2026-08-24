@@ -334,7 +334,7 @@ async function loadMailboxes() {
 async function loadMessages() {
   const host = $("#list");
   host.innerHTML = `<div class="empty">불러오는 중…</div>`;
-  const params = new URLSearchParams({ folder: state.folder });
+  const params = new URLSearchParams({ folder: state.folder, limit: "200" });
   if (state.mailbox) params.set("mailbox", state.mailbox);
   if (state.query) params.set("q", state.query);
 
@@ -347,13 +347,98 @@ async function loadMessages() {
   }
 }
 
+/** 폴더별 일괄 처리 버튼. 휴지통에서는 영구 삭제와 복원을 보여준다. */
+function bulkActionsFor(folder) {
+  if (folder === "trash") {
+    return [
+      { key: "restore", label: "복원" },
+      { key: "delete", label: "영구 삭제", danger: true },
+    ];
+  }
+  const actions = [
+    { key: "read", label: "읽음" },
+    { key: "star", label: "중요" },
+  ];
+  if (folder !== "spam") actions.push({ key: "spam", label: "스팸" });
+  else actions.push({ key: "unspam", label: "스팸 해제" });
+  actions.push({ key: "trash", label: "휴지통" });
+  return actions;
+}
+
 function renderBulkbar() {
   const bar = $("#bulkbar");
   const n = state.checked.size;
   bar.hidden = n === 0;
-  if (n) {
-    $("#bulk-count").textContent = `${n}개 선택`;
-    $("#check-all").checked = n === state.messages.length && n > 0;
+  if (!n) return;
+
+  $("#bulk-count").textContent = `${n}개 선택`;
+  $("#check-all").checked = n === state.messages.length;
+
+  const host = $("#bulk-actions");
+  host.innerHTML = "";
+  for (const action of bulkActionsFor(state.folder)) {
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm" + (action.danger ? " btn-danger" : "");
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => runBulk(action, btn));
+    host.appendChild(btn);
+  }
+}
+
+/** 선택한 메일에 일괄 작업을 적용한다 */
+async function runBulk(action, btn) {
+  const ids = Array.from(state.checked);
+  if (!ids.length) return;
+
+  if (action.key === "delete") {
+    const ok = await confirmDialog(
+      "영구 삭제",
+      `${ids.length}개 메일을 완전히 삭제합니다. 첨부파일과 원본까지 지워지고 되돌릴 수 없습니다.`,
+      "영구 삭제",
+    );
+    if (!ok) return;
+  }
+
+  const patch =
+    action.key === "read" ? { is_read: true }
+    : action.key === "star" ? { is_starred: true }
+    : action.key === "spam" ? { is_spam: true }
+    : action.key === "unspam" ? { is_spam: false }
+    : action.key === "restore" ? { is_trashed: false }
+    : action.key === "trash" ? { is_trashed: true }
+    : null;
+
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "처리 중…";
+  try {
+    // 실패한 건을 따로 세서 부분 실패를 숨기지 않는다
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        action.key === "delete"
+          ? api(`/api/messages/${encodeURIComponent(id)}`, { method: "DELETE" })
+          : api(`/api/messages/${encodeURIComponent(id)}`, {
+              method: "PATCH",
+              body: JSON.stringify(patch),
+            }),
+      ),
+    );
+    const failed = results.filter((r) => r.status === "rejected");
+    if (failed.length) {
+      toast(`${ids.length - failed.length}개 처리, ${failed.length}개 실패: ${failed[0].reason.message}`);
+    } else {
+      toast(`${ids.length}개 ${action.key === "delete" ? "삭제했습니다" : "처리했습니다"}.`);
+    }
+
+    // 보고 있던 메일이 사라졌으면 읽기 창을 닫는다
+    if (state.selectedId && ids.includes(state.selectedId)) setReading(false);
+    state.checked.clear();
+    await loadMessages();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
   }
 }
 
@@ -448,38 +533,6 @@ $("#check-all").addEventListener("change", (event) => {
   renderList();
 });
 
-for (const btn of $$("[data-bulk]")) {
-  btn.addEventListener("click", async () => {
-    const ids = Array.from(state.checked);
-    if (!ids.length) return;
-    const kind = btn.dataset.bulk;
-    const patch =
-      kind === "read" ? { is_read: true }
-      : kind === "star" ? { is_starred: true }
-      : kind === "spam" ? { is_spam: true }
-      : { is_trashed: true };
-
-    btn.disabled = true;
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          api(`/api/messages/${encodeURIComponent(id)}`, {
-            method: "PATCH",
-            body: JSON.stringify(patch),
-          }),
-        ),
-      );
-      toast(`${ids.length}개 처리했습니다.`);
-      state.checked.clear();
-      await loadMessages();
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-}
-
 let searchTimer = null;
 $("#search").addEventListener("input", (event) => {
   clearTimeout(searchTimer);
@@ -548,6 +601,7 @@ function renderMessage(msg, attachments) {
         <button class="btn btn-sm" id="star">${msg.is_starred ? "중요 해제" : "중요"}</button>
         <button class="btn btn-sm" id="trash">${msg.is_trashed ? "복원" : "휴지통"}</button>
         <button class="btn btn-sm" id="spam">${msg.is_spam ? "스팸 해제" : "스팸"}</button>
+        ${msg.is_trashed ? `<button class="btn btn-sm btn-danger" id="purge">영구 삭제</button>` : ""}
         ${msg.raw_key ? `<a class="btn btn-sm" href="${CFG.apiBase}/api/messages/${encodeURIComponent(msg.id)}/raw" target="_blank" rel="noopener">원본</a>` : ""}
       </div>
     </div>
@@ -588,6 +642,22 @@ function renderMessage(msg, attachments) {
   $("#star").addEventListener("click", () => patchMessage(msg.id, { is_starred: !msg.is_starred }));
   $("#trash").addEventListener("click", () => patchMessage(msg.id, { is_trashed: !msg.is_trashed }));
   $("#spam").addEventListener("click", () => patchMessage(msg.id, { is_spam: !msg.is_spam }));
+  $("#purge")?.addEventListener("click", async () => {
+    const ok = await confirmDialog(
+      "영구 삭제",
+      `"${msg.subject}" 을 완전히 삭제합니다. 첨부파일과 원본까지 지워지고 되돌릴 수 없습니다.`,
+      "영구 삭제",
+    );
+    if (!ok) return;
+    try {
+      await api(`/api/messages/${encodeURIComponent(msg.id)}`, { method: "DELETE" });
+      toast("삭제했습니다.");
+      setReading(false);
+      await loadMessages();
+    } catch (error) {
+      toast(error.message);
+    }
+  });
 }
 
 async function patchMessage(id, patch) {

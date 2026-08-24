@@ -115,14 +115,11 @@
         </header>
 
         <div class="bulkbar" id="bulkbar" hidden>
-          <label class="check"><input type="checkbox" id="check-all" /></label>
+          <label class="check" title="모두 선택">
+            <input type="checkbox" id="check-all" />
+          </label>
           <span class="bulk-count" id="bulk-count"></span>
-          <div class="bulk-actions">
-            <button class="btn btn-sm" data-bulk="read">읽음</button>
-            <button class="btn btn-sm" data-bulk="star">중요</button>
-            <button class="btn btn-sm" data-bulk="spam">스팸</button>
-            <button class="btn btn-sm" data-bulk="trash">휴지통</button>
-          </div>
+          <div class="bulk-actions" id="bulk-actions"></div>
         </div>
 
         <div class="list-header">
