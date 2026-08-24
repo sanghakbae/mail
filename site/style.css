@@ -539,8 +539,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(10, 12, 15, 0.5);
-  display: grid; place-items: center;
-  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 노치/홈바를 피하면서 항상 화면 안에 들어오게 */
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+           max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
 }
 .modal {
   width: 100%;
@@ -549,7 +553,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border-radius: 14px;
   box-shadow: var(--shadow-2);
   padding: 22px;
-  max-height: 92dvh;
+  /* 어떤 경우에도 화면을 넘지 않는다 (dvh 미지원 브라우저 대비 vh 폴백) */
+  max-height: 88vh;
+  max-height: 88dvh;
   overflow-y: auto;
 }
 .modal-sm { max-width: 400px; }
@@ -668,8 +674,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: var(--panel-2);
   outline: none;
   font-size: 13.5px;
+  /* 긴 단어/URL 이 가로로 넘쳐 에디터가 좌우로 스크롤되던 문제 */
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .editor:focus { background: var(--panel); border-color: var(--accent); }
+.editor img, .editor table { max-width: 100%; }
 .editor blockquote {
   margin: 8px 0; padding-left: 12px;
   border-left: 3px solid var(--border-strong);
@@ -809,80 +820,32 @@ table.grid tr:last-child td { border-bottom: none; }
   .icon-btn { width: 38px; height: 38px; }
   .btn { padding: 7px 12px; }
 
-  .modal-backdrop { padding: 0; place-items: stretch; }
-  .modal {
-    max-width: none; max-height: none;
-    min-height: 100dvh;
-    border: none; border-radius: 0;
-    padding: max(18px, env(safe-area-inset-top)) 16px 24px;
-  }
-  /* 작성 모달은 좁은 화면에서도 80% x 80% 를 유지한다 */
-  .modal-backdrop:has(.modal-compose) { padding: 16px; place-items: center; }
-  .modal-compose {
-    min-height: 0;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px;
-  }
-  .modal-compose .modal-head,
-  .modal-compose .modal-actions {
-    position: static;
-    margin: 0 0 10px;
-    padding: 0;
-    border: none;
-  }
-  .modal-compose .modal-actions { margin: 10px 0 0; }
+  /* 모달은 화면 크기에 관계없이 중앙 정렬 + 상한이 걸려 있다.
+     :has() 에 의존하던 예외 규칙은 iOS Safari 구버전에서 무시되어 제거했다. */
+  .modal { padding: 16px; border-radius: 12px; }
+  .modal-compose, .modal-admin { padding: 14px; }
 
-  /* 확인/입력 모달은 전체화면으로 만들지 않는다 */
-  .modal-backdrop:has(.modal-sm) { padding: 20px; place-items: center; }
-  .modal-sm {
-    min-height: 0;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px;
+  /* 작성 화면: 머리말 칸은 조이고 내용 칸에 높이를 몰아준다 */
+  .modal-compose .modal-head { margin-bottom: 10px; }
+  .modal-compose .modal-head h3 { font-size: 15px; }
+  .compose-head .field { margin-bottom: 7px; }
+  .compose-head label { font-size: 11px; margin-bottom: 2px; }
+  .compose-head > .field > input,
+  .compose-head > .field > select {
+    padding: 6px 9px;
+    font-size: 13px;
+    border-radius: 6px;
   }
-  .modal-sm .modal-head,
-  .modal-sm .modal-actions {
-    position: static;
-    margin: 0 0 12px;
-    padding: 0;
-    border: none;
-  }
-  .modal-sm .modal-actions { margin: 14px 0 0; }
-
-  /* 관리자 모달은 좁은 화면에서도 80% x 80% 를 유지한다 */
-  .modal-backdrop:has(.modal-admin) { padding: 20px; place-items: center; }
-  .modal-admin {
-    min-height: 0;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px;
-  }
-  .modal-admin .modal-head,
-  .modal-admin .modal-actions {
-    position: static;
-    margin: 0 0 12px;
-    padding: 0;
-    border: none;
-  }
-  .modal-admin .modal-actions { margin: 12px 0 0; }
-  .editor { max-height: none; min-height: 38dvh; }
-
-  /* 헤더/푸터를 고정해 긴 폼에서도 제목과 버튼이 항상 보이게 한다 */
-  .modal-head {
-    position: sticky; top: 0; z-index: 2;
-    margin: 0 -16px 16px;
-    padding: 0 16px 12px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-  }
-  .modal-actions {
-    position: sticky; bottom: 0; z-index: 2;
-    margin: 16px -16px 0;
-    padding: 10px 16px max(10px, env(safe-area-inset-bottom));
-    background: var(--panel);
-    border-top: 1px solid var(--border);
-  }
+  .field-body label { font-size: 11px; margin-bottom: 2px; }
+  /* flex 로 배분된 높이를 쓰게 한다. min-height 를 크게 주면
+     남은 공간보다 커져 하단 버튼을 밀어낸다. */
+  .modal-compose .editor { min-height: 0; }
+  .modal-compose .editor-toolbar { padding: 4px; }
+  .modal-compose .tool { min-width: 24px; height: 26px; padding: 0 4px; font-size: 12.5px; }
+  /* 좁은 화면에서 툴바가 두 줄로 넘치지 않게 구분선을 뺀다 */
+  .modal-compose .tool-sep { display: none; }
+  .modal-compose .editor-toolbar { gap: 2px; flex-wrap: nowrap; overflow-x: auto; }
+  .modal-compose .modal-actions { margin-top: 10px; }
 
   .login-card { padding: 30px 22px 24px; border-radius: 16px; }
 }
