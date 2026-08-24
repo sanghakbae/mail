@@ -373,7 +373,12 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
   // ---- 메일함 목록 ----
   if (path === "/api/mailboxes" && method === "GET") {
-    const boxes = await db.list("mailboxes");
+    let boxes = await db.list("mailboxes");
+    // 메일이 도착해 자동 등록된 주소는 기본적으로 감춘다.
+    // (사이드바가 수신 이력만으로 지저분해지지 않게 — 관리자 화면은 전체를 본다)
+    if (url.searchParams.get("include_auto") !== "1") {
+      boxes = boxes.filter((b) => !b.auto_created);
+    }
     boxes.sort((a, b) => String(a.address).localeCompare(String(b.address)));
     return json({ mailboxes: boxes });
   }

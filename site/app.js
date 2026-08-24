@@ -19,6 +19,7 @@ const state = {
   selectedId: null,
   checked: new Set(),
   mailboxes: [],
+  sendableAddresses: [],
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -281,6 +282,13 @@ function renderMailboxes() {
   all.addEventListener("click", () => pick(""));
   host.appendChild(all);
 
+  if (!state.mailboxes.length) {
+    const hint = document.createElement("div");
+    hint.className = "nav-hint";
+    hint.textContent = "등록한 주소가 없습니다";
+    host.appendChild(hint);
+  }
+
   for (const box of state.mailboxes) {
     const localPart = String(box.address).split("@")[0];
     const btn = document.createElement("button");
@@ -316,7 +324,10 @@ $("#add-mailbox").addEventListener("click", async () => {
 /* ================= 목록 ================= */
 
 async function loadMailboxes() {
+  // 사이드바용 — 직접 등록한 주소만
   state.mailboxes = (await api("/api/mailboxes")).mailboxes || [];
+  // 보내는 주소 후보 — 자동 등록된 주소도 포함해야 그 주소로 답장할 수 있다
+  state.sendableAddresses = (await api("/api/mailboxes?include_auto=1")).mailboxes || [];
   renderMailboxes();
 }
 
@@ -682,9 +693,8 @@ function editorToText(el) {
 }
 
 function openCompose({ replyTo } = {}) {
-  const addresses = state.mailboxes.length
-    ? state.mailboxes.map((b) => b.address)
-    : [`hello@${CFG.domain}`];
+  const pool = state.sendableAddresses?.length ? state.sendableAddresses : state.mailboxes;
+  const addresses = pool.length ? pool.map((b) => b.address) : [`hello@${CFG.domain}`];
   const defaultFrom = replyTo ? replyTo.mailbox : addresses[0];
 
   const quoted = replyTo
@@ -1154,7 +1164,7 @@ function passwordForm() {
 }
 
 async function renderAdminAddresses(host) {
-  const { mailboxes } = await api("/api/mailboxes");
+  const { mailboxes } = await api("/api/mailboxes?include_auto=1");
   host.innerHTML = `
     <div class="note">catch-all 이 Worker 로 연결되어 있으므로, 여기에 없는 주소로 온 메일도
       수신되고 자동으로 목록에 추가됩니다. 미리 등록하면 보내는 주소로 고를 수 있습니다.</div>
