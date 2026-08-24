@@ -695,46 +695,53 @@ function openCompose({ replyTo } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
-    <form class="modal modal-md" id="compose-form">
+    <form class="modal modal-compose" id="compose-form">
       <div class="modal-head">
         <h3>${replyTo ? "답장 쓰기" : "새 메일 쓰기"}</h3>
         <button type="button" class="icon-btn" id="c-close" aria-label="닫기">✕</button>
       </div>
-      <div class="field">
-        <label for="c-from">보내는 주소</label>
-        <select id="c-from">
-          ${addresses
-            .map((a) => `<option value="${esc(a)}" ${a === defaultFrom ? "selected" : ""}>${esc(a)}</option>`)
-            .join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label for="c-to">받는 사람 (쉼표로 구분)</label>
-        <input id="c-to" value="${esc(replyTo ? replyTo.from_addr : "")}" inputmode="email" />
-      </div>
-      <div class="field">
-        <label for="c-cc">참조 (선택)</label>
-        <input id="c-cc" inputmode="email" />
-      </div>
-      <div class="field">
-        <label for="c-subject">제목</label>
-        <input id="c-subject" value="${esc(
-          replyTo ? (/^re:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`) : "",
-        )}" />
-      </div>
-      <div class="field">
-        <label>내용</label>
-        <div class="editor-toolbar" id="c-toolbar">
-          ${TOOLS.map((t) =>
-            t.sep
-              ? `<span class="tool-sep"></span>`
-              : `<button type="button" class="tool" data-cmd="${t.cmd}" title="${esc(t.title)}"
-                   ${t.style ? `style="${t.style}"` : ""}>${t.label}</button>`,
-          ).join("")}
+
+      <div class="compose-main">
+        <div class="compose-head">
+          <div class="field">
+            <label for="c-from">보내는 주소</label>
+            <select id="c-from">
+              ${addresses
+                .map((a) => `<option value="${esc(a)}" ${a === defaultFrom ? "selected" : ""}>${esc(a)}</option>`)
+                .join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-to">받는 사람 (쉼표로 구분)</label>
+            <input id="c-to" value="${esc(replyTo ? replyTo.from_addr : "")}" inputmode="email" />
+          </div>
+          <div class="field">
+            <label for="c-cc">참조 (선택)</label>
+            <input id="c-cc" inputmode="email" />
+          </div>
+          <div class="field">
+            <label for="c-subject">제목</label>
+            <input id="c-subject" value="${esc(
+              replyTo ? (/^re:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`) : "",
+            )}" />
+          </div>
         </div>
-        <div class="editor" id="c-body" contenteditable="true"
-             data-placeholder="내용을 입력하세요">${quoted}</div>
+
+        <div class="field field-body">
+          <label>내용</label>
+          <div class="editor-toolbar" id="c-toolbar">
+            ${TOOLS.map((t) =>
+              t.sep
+                ? `<span class="tool-sep"></span>`
+                : `<button type="button" class="tool" data-cmd="${t.cmd}" title="${esc(t.title)}"
+                     ${t.style ? `style="${t.style}"` : ""}>${t.label}</button>`,
+            ).join("")}
+          </div>
+          <div class="editor" id="c-body" contenteditable="true"
+               data-placeholder="내용을 입력하세요">${quoted}</div>
+        </div>
       </div>
+
       <p class="error" id="c-error"></p>
       <div class="modal-actions">
         <button type="button" class="btn" id="c-cancel">취소</button>

@@ -554,6 +554,56 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .modal-lg { max-width: 940px; }
 
 /*
+ * 작성 모달도 화면의 80% x 80% 로 고정한다.
+ * 머리말과 버튼은 붙어 있고, 에디터가 남는 높이를 전부 채운다.
+ */
+.modal-compose {
+  width: 80vw;
+  height: 80dvh;
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-compose .modal-head { flex-shrink: 0; }
+.modal-compose .modal-actions { flex-shrink: 0; }
+.modal-compose > .error { flex-shrink: 0; }
+
+.compose-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 보내는 주소 / 받는 사람 / 참조 / 제목 — 높이 고정 */
+.compose-head { flex-shrink: 0; }
+
+/* 내용 — 남는 높이를 채우고, 넘치면 에디터 안에서 스크롤 */
+.field-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+.field-body .editor-toolbar { flex-shrink: 0; }
+.modal-compose .editor {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* 넓은 화면에서는 머리말 네 칸을 2열로 접어 세로 공간을 아낀다 */
+@media (min-width: 720px) {
+  .compose-head {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 12px;
+  }
+}
+
+/*
  * 관리자 모달은 화면의 80% x 80% 로 고정한다.
  * 탭을 바꿔도 모달 크기가 흔들리지 않도록, 내용 영역만 안쪽에서 스크롤한다.
  */
@@ -762,6 +812,23 @@ table.grid tr:last-child td { border-bottom: none; }
     border: none; border-radius: 0;
     padding: max(18px, env(safe-area-inset-top)) 16px 24px;
   }
+  /* 작성 모달은 좁은 화면에서도 80% x 80% 를 유지한다 */
+  .modal-backdrop:has(.modal-compose) { padding: 16px; place-items: center; }
+  .modal-compose {
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .modal-compose .modal-head,
+  .modal-compose .modal-actions {
+    position: static;
+    margin: 0 0 10px;
+    padding: 0;
+    border: none;
+  }
+  .modal-compose .modal-actions { margin: 10px 0 0; }
+
   /* 확인/입력 모달은 전체화면으로 만들지 않는다 */
   .modal-backdrop:has(.modal-sm) { padding: 20px; place-items: center; }
   .modal-sm {
