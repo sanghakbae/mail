@@ -35,7 +35,10 @@ CORS 는 `ALLOWED_ORIGINS` 에 등록된 출처만 허용한다.
 | `src/auth.ts` | PBKDF2 비밀번호 해시, HMAC 서명 세션 쿠키 |
 | `src/mail.ts` | MIME 파싱, 스레드 묶기, 스니펫, 첨부 저장 |
 | `src/firestore.ts` | 서비스 계정 JWT 로 Firestore REST 호출 (Worker 에서 firebase-admin 을 못 쓴다) |
+| `src/sender.ts` | 발송 어댑터 (Cloudflare 바인딩 / Resend REST) |
+| `src/validate.ts` | 입력 검증 (Firestore 예약 ID 등) |
 | `site/` | 의존성 없는 단일 파일 웹메일 SPA |
+| `scripts/` | 운영 스크립트 (계정 관리, 진단). `COLLECTION_PREFIX` 를 인식한다 |
 
 ## 설정 순서
 
@@ -213,6 +216,17 @@ wrangler email routing addresses create someone@example.com
 wrangler email routing addresses list
 ```
 
+## 보안 설계
+
+- 비밀번호는 PBKDF2-SHA256 으로만 저장한다. Workers 런타임이 반복 10만 회를 상한으로
+  두기 때문에, 10만 회를 6라운드 연쇄해 권장 작업량(60만 회 상당)을 맞춘다.
+- 세션은 HMAC 서명 쿠키다. 사용자 문서의 `token_version` 을 함께 서명하므로,
+  비밀번호가 바뀌면 다른 기기에 남아 있던 세션이 모두 끊긴다.
+- 계정마다 쓸 수 있는 주소를 지정할 수 있고(`addresses`), 이 권한은 **보내기뿐 아니라
+  읽기에도** 적용된다. 목록·본문·첨부·원본·스레드 모두 권한 밖 메일함은 걸러낸다.
+- 발신자가 보낸 HTML 은 스크립트를 막은 `sandbox` iframe 안에서만 렌더링한다.
+  답장·전달 시 인용문에서는 `style`/`script` 와 이벤트 핸들러를 제거한다.
+
 ## 알려진 제약
 
 - **Cloudflare 경로로는 검증된 주소로만 발송된다.** 도메인 온보딩(`wrangler email sending enable`)이
@@ -221,5 +235,7 @@ wrangler email routing addresses list
 - **검색은 전문 검색이 아니다.** Firestore 에 전문 색인이 없어, 최근 500 건을 가져와
   메모리에서 걸러낸다. 메일이 많아지면 외부 검색 색인이 필요하다.
 - **IMAP/SMTP 클라이언트로는 접속할 수 없다.** 브라우저 웹메일 전용이다.
+- **목록은 한 번에 200건까지** 불러온다. 그보다 많으면 검색으로 좁혀야 한다.
+- 자동 새로고침은 60초 간격이며, 탭이 보이고 작성/선택 중이 아닐 때만 동작한다.
 - **첨부파일 발송 한도**: 파일당 10MB, 합계 20MB, 최대 10개.
 - HTML 본문은 스크립트를 막은 `sandbox` iframe 안에서만 렌더링한다.

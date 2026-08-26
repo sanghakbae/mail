@@ -8,6 +8,7 @@ import { Firestore } from "./firestore";
 import { validateDocId } from "./validate";
 import { base64ToBytes, resolveProvider, SendError, sendMail } from "./sender";
 import {
+  canAccessMailbox,
   canUseAddress,
   clearCookie,
   createSession,
@@ -173,7 +174,11 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const ok = await verifyPassword(body.password, storedHash);
     if (!doc || !ok) return bad("아이디 또는 비밀번호가 올바르지 않다", 401);
 
-    const token = await createSession(body.id, env.SESSION_SECRET);
+    const token = await createSession(
+      body.id,
+      env.SESSION_SECRET,
+      Number(doc.token_version ?? 0),
+    );
     return json(
       { ok: true, id: body.id, display_name: doc.display_name ?? body.id },
       { headers: { "set-cookie": sessionCookie(token, cookieOptions(request, env)) } },
@@ -216,12 +221,15 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (!(await verifyPassword(body.current_password, user.password_hash))) {
       return bad("현재 비밀번호가 올바르지 않다", 403);
     }
+    // 토큰 버전을 올리면 다른 기기에 남아 있던 세션이 전부 끊긴다
+    const nextVersion = Number(user.token_version ?? 0) + 1;
     await db.update("users", user.id, {
       password_hash: await hashPassword(body.new_password),
       password_changed_at: new Date().toISOString(),
+      token_version: nextVersion,
     });
-    // 기존 세션 토큰은 그대로 유효하다. 새 쿠키를 내려 만료를 갱신해 준다.
-    const token = await createSession(user.id, env.SESSION_SECRET);
+    // 지금 쓰는 기기만 새 토큰으로 이어서 쓰게 한다
+    const token = await createSession(user.id, env.SESSION_SECRET, nextVersion);
     return json(
       { ok: true },
       { headers: { "set-cookie": sessionCookie(token, cookieOptions(request, env)) } },
@@ -300,6 +308,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
         patch.password_hash = await hashPassword(body.password);
         patch.password_changed_at = new Date().toISOString();
+        // 비밀번호가 바뀌면 그 계정의 기존 세션을 모두 끊는다
+        patch.token_version = Number(target.token_version ?? 0) + 1;
       }
       if (!Object.keys(patch).length) return bad("변경할 내용이 없다");
 
@@ -447,6 +457,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       limit: fetchLimit,
     });
 
+    // 볼 권한이 없는 메일함은 걸러낸다 (전체 조회 시)
+    rows = rows.filter((r) => canAccessMailbox(user, String(r.mailbox ?? "")));
+
     if (q) {
       rows = rows
         .filter((r) => {
@@ -474,6 +487,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const id = decodeURIComponent(msgMatch[1]);
     const msg = await db.get("messages", id);
     if (!msg) return bad("메시지를 찾을 수 없다", 404);
+    if (!canAccessMailbox(user, String(msg.mailbox ?? ""))) {
+      return bad("이 메일을 볼 권한이 없다", 403);
+    }
 
     if (!msg.is_read) {
       await db.update("messages", id, { is_read: true });
@@ -500,6 +516,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
     const existing = await db.get("messages", id);
     if (!existing) return bad("메시지를 찾을 수 없다", 404);
+    if (!canAccessMailbox(user, String(existing.mailbox ?? ""))) {
+      return bad("이 메일을 변경할 권한이 없다", 403);
+    }
 
     // 플래그가 바뀌면 목록 조회용 파생 키도 함께 갱신해야 한다
     const trashed = Boolean(patch.is_trashed ?? existing.is_trashed);
@@ -527,6 +546,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const id = decodeURIComponent(msgMatch[1]);
     const msg = await db.get("messages", id);
     if (!msg) return bad("메시지를 찾을 수 없다", 404);
+    if (!canAccessMailbox(user, String(msg.mailbox ?? ""))) {
+      return bad("이 메일을 삭제할 권한이 없다", 403);
+    }
 
     // R2 의 원본과 첨부까지 함께 지운다
     const attachments = await db.query("attachments", {
@@ -545,11 +567,13 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   const threadMatch = path.match(/^\/api\/threads\/([^/]+)$/);
   if (threadMatch && method === "GET") {
     const threadId = decodeURIComponent(threadMatch[1]);
-    const rows = await db.query("messages", {
-      where: [["thread_id", "EQUAL", threadId]],
-      orderBy: [["__name__", "ASCENDING"]],
-      limit: 200,
-    });
+    const rows = (
+      await db.query("messages", {
+        where: [["thread_id", "EQUAL", threadId]],
+        orderBy: [["__name__", "ASCENDING"]],
+        limit: 200,
+      })
+    ).filter((m) => canAccessMailbox(user, String(m.mailbox ?? "")));
     return json({ thread_id: threadId, messages: rows });
   }
 
@@ -559,6 +583,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const attId = decodeURIComponent(attMatch[1]);
     const att = await db.get("attachments", attId);
     if (!att || typeof att.r2_key !== "string") return bad("첨부파일을 찾을 수 없다", 404);
+    if (!canAccessMailbox(user, String(att.mailbox ?? ""))) {
+      return bad("이 첨부파일을 볼 권한이 없다", 403);
+    }
     const object = await env.BLOBS.get(att.r2_key);
     if (!object) return bad("첨부파일 본문이 없다", 404);
 
@@ -579,6 +606,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     const id = decodeURIComponent(rawMatch[1]);
     const msg = await db.get("messages", id);
     if (!msg || typeof msg.raw_key !== "string") return bad("원본이 없다", 404);
+    if (!canAccessMailbox(user, String(msg.mailbox ?? ""))) {
+      return bad("이 메일의 원본을 볼 권한이 없다", 403);
+    }
     const object = await env.BLOBS.get(msg.raw_key);
     if (!object) return bad("원본 본문이 없다", 404);
     return new Response(object.body, {

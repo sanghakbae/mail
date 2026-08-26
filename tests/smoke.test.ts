@@ -45,7 +45,7 @@ test("단일 라운드 레거시 포맷도 계속 검증된다", async () => {
 
 test("세션 토큰은 서명이 맞을 때만 통과한다", async () => {
   const token = await createSession("admin", "secret-key");
-  assert.equal(await verifySession(token, "secret-key"), "admin");
+  assert.deepEqual(await verifySession(token, "secret-key"), { userId: "admin", tokenVersion: 0 });
   assert.equal(await verifySession(token, "wrong-key"), null, "다른 키로는 통과하면 안 된다");
 
   // payload 를 조작하면 서명이 깨져야 한다
@@ -336,4 +336,33 @@ test("첨부파일 base64 를 바이트로 정확히 되돌린다", async () => 
   const text = "첨부 내용 테스트\n두 번째 줄";
   const decoded = new TextDecoder().decode(base64ToBytes(Buffer.from(text).toString("base64")));
   assert.equal(decoded, text);
+});
+
+test("비밀번호를 바꾸면 기존 세션 토큰이 무효가 된다", async () => {
+  const secret = "s3cret";
+  // 비밀번호 변경 전 발급된 토큰 (버전 0)
+  const oldToken = await createSession("bae", secret, 0);
+  // 변경 후 발급된 토큰 (버전 1)
+  const newToken = await createSession("bae", secret, 1);
+
+  const oldClaims = await verifySession(oldToken, secret);
+  const newClaims = await verifySession(newToken, secret);
+  assert.equal(oldClaims.tokenVersion, 0);
+  assert.equal(newClaims.tokenVersion, 1);
+
+  // currentUser 는 사용자 문서의 token_version 과 다르면 거부한다
+  const userDoc = { id: "bae", password_hash: "", token_version: 1 };
+  assert.notEqual(oldClaims.tokenVersion, userDoc.token_version, "예전 토큰은 버전이 어긋나야 한다");
+  assert.equal(newClaims.tokenVersion, userDoc.token_version);
+});
+
+test("메일함 접근 권한은 보내기 권한과 같은 규칙을 쓴다", async () => {
+  const { canAccessMailbox } = await import("../src/auth.ts");
+  const all = { id: "a", password_hash: "" }; // addresses 미지정 = 전체
+  assert.equal(canAccessMailbox(all, "anything@sanghak.kr"), true);
+
+  const limited = { id: "b", password_hash: "", addresses: ["bae@sanghak.kr"] };
+  assert.equal(canAccessMailbox(limited, "bae@sanghak.kr"), true);
+  assert.equal(canAccessMailbox(limited, "BAE@sanghak.kr"), true, "대소문자 무시");
+  assert.equal(canAccessMailbox(limited, "totoriverce@sanghak.kr"), false);
 });

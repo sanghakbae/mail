@@ -878,6 +878,23 @@ table.grid tr:last-child td { border-bottom: none; }
   .modal { padding: 16px; border-radius: 12px; }
   .modal-compose, .modal-admin { padding: 14px; }
 
+  /*
+   * 작성 화면은 가로를 꽉 채우고 세로는 화면의 90% 로 띄운다.
+   * 좁은 화면에서 작은 팝업으로 뜨면 쓰기 어렵다.
+   */
+  .backdrop-full { padding: 0; align-items: center; }
+  .backdrop-full .modal-compose {
+    width: 100%;
+    height: 90vh;
+    height: 90dvh;
+    max-width: none;
+    max-height: none;
+    border: none;
+    border-radius: 14px;
+    padding: max(12px, env(safe-area-inset-top)) 14px
+             max(12px, env(safe-area-inset-bottom));
+  }
+
   /* 작성 화면: 머리말 칸은 조이고 내용 칸에 높이를 몰아준다 */
   .modal-compose .modal-head { margin-bottom: 10px; }
   .modal-compose .modal-head h3 { font-size: 15px; }

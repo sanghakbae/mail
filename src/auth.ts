@@ -23,6 +23,11 @@ export interface User {
   /** 관리자 화면 접근 권한 */
   is_admin?: boolean;
   password_changed_at?: string;
+  /**
+   * 세션 무효화용 버전. 비밀번호가 바뀌면 올린다.
+   * 토큰에 이 값이 함께 서명되므로, 값이 달라지면 기존 세션이 모두 끊긴다.
+   */
+  token_version?: number;
   created_at?: string;
 }
 
@@ -122,9 +127,14 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
 }
 
 /** 세션 토큰 발급: <payloadB64url>.<sigB64url> */
-export async function createSession(userId: string, secret: string): Promise<string> {
+export async function createSession(
+  userId: string,
+  secret: string,
+  tokenVersion = 0,
+): Promise<string> {
   const payload = JSON.stringify({
     sub: userId,
+    ver: tokenVersion,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   });
   const payloadPart = b64url(new TextEncoder().encode(payload));
@@ -133,8 +143,16 @@ export async function createSession(userId: string, secret: string): Promise<str
   return `${payloadPart}.${b64url(new Uint8Array(sig))}`;
 }
 
-/** 세션 토큰 검증. 유효하면 사용자 아이디, 아니면 null */
-export async function verifySession(token: string, secret: string): Promise<string | null> {
+export interface SessionClaims {
+  userId: string;
+  tokenVersion: number;
+}
+
+/** 세션 토큰 검증. 유효하면 클레임, 아니면 null */
+export async function verifySession(
+  token: string,
+  secret: string,
+): Promise<SessionClaims | null> {
   const dot = token.indexOf(".");
   if (dot < 1) return null;
   const payloadPart = token.slice(0, dot);
@@ -152,11 +170,12 @@ export async function verifySession(token: string, secret: string): Promise<stri
   try {
     const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(payloadPart))) as {
       sub?: string;
+      ver?: number;
       exp?: number;
     };
     if (!claims.sub || !claims.exp) return null;
     if (claims.exp < Math.floor(Date.now() / 1000)) return null;
-    return claims.sub;
+    return { userId: claims.sub, tokenVersion: claims.ver ?? 0 };
   } catch {
     return null;
   }
@@ -210,11 +229,20 @@ export async function currentUser(
 ): Promise<User | null> {
   const token = readCookie(request, SESSION_COOKIE);
   if (!token) return null;
-  const userId = await verifySession(token, secret);
-  if (!userId) return null;
-  const doc = await db.get("users", userId);
+  const claims = await verifySession(token, secret);
+  if (!claims) return null;
+  const doc = await db.get("users", claims.userId);
   if (!doc) return null;
-  return doc as unknown as User;
+
+  const user = doc as unknown as User;
+  // 비밀번호가 바뀌었으면 그 전에 발급된 토큰은 더 이상 통하지 않는다
+  if ((user.token_version ?? 0) !== claims.tokenVersion) return null;
+  return user;
+}
+
+/** 이 사용자가 해당 메일함의 메일을 볼 수 있는지 (보내기 권한과 같은 규칙) */
+export function canAccessMailbox(user: User, mailbox: string): boolean {
+  return canUseAddress(user, mailbox);
 }
 
 /** 이 사용자가 해당 주소로 보낼 수 있는지 */

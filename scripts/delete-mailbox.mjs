@@ -15,6 +15,7 @@ const { access_token } = await (await fetch("https://oauth2.googleapis.com/token
   method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
   body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${input}.${b64(signer.sign(sa.private_key))}` }),
 })).json();
-const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/mailboxes/${encodeURIComponent(address)}`;
+const PREFIX = process.env.COLLECTION_PREFIX ?? "";
+const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/${PREFIX}mailboxes/${encodeURIComponent(address)}`;
 const res = await fetch(url, { method: "DELETE", headers: { authorization: `Bearer ${access_token}` } });
 console.log(res.ok ? `삭제됨: mailboxes/${address}` : `실패 (${res.status}): ${await res.text()}`);

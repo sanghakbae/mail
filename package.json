@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "wrangler dev --port 8787",
-    "dev:ui": "python3 -m http.server 8080 --directory site",
+    "dev:ui": "node scripts/dev-server.mjs",
     "test": "node --test --experimental-strip-types \"tests/*.test.ts\"",
     "typecheck": "tsc --noEmit -p .",
     "deploy": "wrangler deploy"

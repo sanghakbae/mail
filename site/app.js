@@ -231,6 +231,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 $("#logout").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" }).catch(() => {});
   state.me = null;
+  stopAutoRefresh();
   $("#app").classList.add("hidden");
   $("#login").classList.remove("hidden");
 });
@@ -340,7 +341,10 @@ async function loadMessages() {
 
   try {
     state.messages = (await api(`/api/messages?${params}`)).messages || [];
-    state.checked.clear();
+    // 목록에서 사라진 메일의 선택은 정리한다
+    for (const id of Array.from(state.checked)) {
+      if (!state.messages.some((m) => m.id === id)) state.checked.delete(id);
+    }
     renderList();
   } catch (error) {
     host.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
@@ -598,6 +602,12 @@ function renderMessage(msg, attachments) {
 
       <div class="actions">
         <button class="btn btn-primary" id="reply">답장</button>
+        ${
+          (msg.to_addrs || []).length + (msg.cc_addrs || []).length > 1
+            ? `<button class="btn btn-sm" id="reply-all">전체답장</button>`
+            : ""
+        }
+        <button class="btn btn-sm" id="forward">전달</button>
         <button class="btn btn-sm" id="star">${msg.is_starred ? "중요 해제" : "중요"}</button>
         <button class="btn btn-sm" id="trash">${msg.is_trashed ? "복원" : "휴지통"}</button>
         <button class="btn btn-sm" id="spam">${msg.is_spam ? "스팸 해제" : "스팸"}</button>
@@ -639,6 +649,10 @@ function renderMessage(msg, attachments) {
 
   $("#back")?.addEventListener("click", () => setReading(false));
   $("#reply").addEventListener("click", () => openCompose({ replyTo: msg }));
+  $("#reply-all")?.addEventListener("click", () => openCompose({ replyTo: msg, replyAll: true }));
+  $("#forward").addEventListener("click", () =>
+    openCompose({ forwardOf: msg, attachments }),
+  );
   $("#star").addEventListener("click", () => patchMessage(msg.id, { is_starred: !msg.is_starred }));
   $("#trash").addEventListener("click", () => patchMessage(msg.id, { is_trashed: !msg.is_trashed }));
   $("#spam").addEventListener("click", () => patchMessage(msg.id, { is_spam: !msg.is_spam }));
@@ -783,26 +797,63 @@ function editorToText(el) {
     .trim();
 }
 
-function openCompose({ replyTo } = {}) {
+function openCompose({ replyTo, replyAll, forwardOf, attachments: srcAttachments } = {}) {
   const pool = state.sendableAddresses?.length ? state.sendableAddresses : state.mailboxes;
   const addresses = pool.length ? pool.map((b) => b.address) : [`hello@${CFG.domain}`];
-  const defaultFrom = replyTo ? replyTo.mailbox : addresses[0];
+  const source = replyTo || forwardOf;
+  const defaultFrom = source ? source.mailbox : addresses[0];
+
+  /** 원문을 인용문으로 감싼다 */
+  const quoteOf = (msg, heading) =>
+    `<br><br><div>${heading}</div>` +
+    `<blockquote>${
+      msg.body_html
+        ? sanitizeQuoted(msg.body_html)
+        : esc(msg.body_text || msg.snippet || "").replace(/\n/g, "<br>")
+    }</blockquote>`;
 
   const quoted = replyTo
-    ? `<br><br><div>--- ${esc(replyTo.from_name || replyTo.from_addr)} 님이 쓴 글 ---</div>` +
-      `<blockquote>${
-        replyTo.body_html
-          ? sanitizeQuoted(replyTo.body_html)
-          : esc(replyTo.body_text || replyTo.snippet || "").replace(/\n/g, "<br>")
-      }</blockquote>`
-    : "";
+    ? quoteOf(replyTo, `--- ${esc(replyTo.from_name || replyTo.from_addr)} 님이 쓴 글 ---`)
+    : forwardOf
+      ? quoteOf(
+          forwardOf,
+          `--- 전달된 메일 ---<br>` +
+            `보낸 사람: ${esc(forwardOf.from_name || "")} &lt;${esc(forwardOf.from_addr)}&gt;<br>` +
+            `받는 사람: ${esc((forwardOf.to_addrs || []).join(", "))}<br>` +
+            `제목: ${esc(forwardOf.subject)}`,
+        )
+      : "";
+
+  // 전체답장이면 원래 수신자·참조에서 내 주소를 뺀 나머지를 참조에 넣는다
+  const myAddresses = new Set(addresses.map((a) => a.toLowerCase()));
+  const defaultTo = replyTo ? replyTo.from_addr : "";
+  const defaultCc =
+    replyAll && replyTo
+      ? [...(replyTo.to_addrs || []), ...(replyTo.cc_addrs || [])]
+          .map((a) => String(a).toLowerCase())
+          .filter((a) => a && !myAddresses.has(a) && a !== String(replyTo.from_addr).toLowerCase())
+          .filter((a, i, arr) => arr.indexOf(a) === i)
+          .join(", ")
+      : "";
+
+  const defaultSubject = replyTo
+    ? /^re:/i.test(replyTo.subject)
+      ? replyTo.subject
+      : `Re: ${replyTo.subject}`
+    : forwardOf
+      ? /^fwd:/i.test(forwardOf.subject)
+        ? forwardOf.subject
+        : `Fwd: ${forwardOf.subject}`
+      : "";
 
   const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
+  // backdrop-full: 좁은 화면에서 작성 화면을 전체화면으로 띄운다.
+  // (:has() 는 iOS Safari 구버전에서 무시되므로 클래스로 표시한다)
+  backdrop.className = "modal-backdrop backdrop-full";
   backdrop.innerHTML = `
     <form class="modal modal-compose" id="compose-form">
       <div class="modal-head">
-        <h3>${replyTo ? "답장 쓰기" : "새 메일 쓰기"}</h3>
+        <h3>${replyAll ? "전체답장" : replyTo ? "답장 쓰기" : forwardOf ? "전달" : "새 메일 쓰기"}</h3>
         <button type="button" class="icon-btn" id="c-close" aria-label="닫기">✕</button>
       </div>
 
@@ -818,17 +869,15 @@ function openCompose({ replyTo } = {}) {
           </div>
           <div class="field">
             <label for="c-to">받는 사람 (쉼표로 구분)</label>
-            <input id="c-to" value="${esc(replyTo ? replyTo.from_addr : "")}" inputmode="email" />
+            <input id="c-to" value="${esc(defaultTo)}" inputmode="email" />
           </div>
           <div class="field">
             <label for="c-cc">참조 (선택)</label>
-            <input id="c-cc" inputmode="email" />
+            <input id="c-cc" value="${esc(defaultCc)}" inputmode="email" />
           </div>
           <div class="field">
             <label for="c-subject">제목</label>
-            <input id="c-subject" value="${esc(
-              replyTo ? (/^re:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`) : "",
-            )}" />
+            <input id="c-subject" value="${esc(defaultSubject)}" />
           </div>
         </div>
 
@@ -903,6 +952,27 @@ function openCompose({ replyTo } = {}) {
     });
   };
 
+  // 전달이면 원본 첨부를 그대로 가져온다
+  if (forwardOf && srcAttachments?.length) {
+    (async () => {
+      for (const att of srcAttachments) {
+        try {
+          const res = await fetch(
+            `${CFG.apiBase}/api/attachments/${encodeURIComponent(att.id)}`,
+            { credentials: "include" },
+          );
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const file = new File([blob], att.filename, { type: att.mime_type });
+          attached.push({ file, name: att.filename, size: file.size, type: att.mime_type });
+        } catch {
+          /* 개별 첨부 실패는 건너뛴다 */
+        }
+      }
+      renderAttachments();
+    })();
+  }
+
   $("#c-attach").addEventListener("click", () => $("#c-files").click());
   $("#c-files").addEventListener("change", (event) => {
     const errorEl = $("#c-error");
@@ -955,7 +1025,7 @@ function openCompose({ replyTo } = {}) {
 
   // 답장이면 인용문 위에 커서를 둔다
   editor.focus();
-  if (replyTo) {
+  if (source) {
     const range = document.createRange();
     range.setStart(editor, 0);
     range.collapse(true);
@@ -1460,6 +1530,39 @@ async function renderAdminSystem(host) {
   `;
 }
 
+/* ================= 자동 새로고침 ================= */
+
+const REFRESH_INTERVAL_MS = 60_000;
+let refreshTimer = null;
+
+/**
+ * 탭이 보일 때만 주기적으로 목록을 갱신한다.
+ * 작성 중이거나 목록을 조작 중이면 건너뛴다 (선택이 풀리거나 입력이 방해되지 않게).
+ */
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshTimer = setInterval(() => {
+    if (!state.me) return;
+    if (document.hidden) return;
+    if (document.querySelector(".modal-backdrop")) return; // 작성/관리자 열려 있음
+    if (state.checked.size) return; // 선택 중
+    if (document.activeElement?.tagName === "INPUT") return; // 검색 입력 중
+    loadMessages().catch(() => {});
+  }, REFRESH_INTERVAL_MS);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+// 탭으로 돌아오면 즉시 한 번 갱신한다
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.me && !document.querySelector(".modal-backdrop")) {
+    loadMessages().catch(() => {});
+  }
+});
+
 /* ================= 부팅 ================= */
 
 window.addEventListener("resize", () => {
@@ -1484,6 +1587,7 @@ async function boot() {
   await loadMailboxes();
   await loadMessages();
   syncHashRoute();
+  startAutoRefresh();
 }
 
 boot();

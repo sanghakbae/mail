@@ -18,6 +18,7 @@ const tok = await (await fetch("https://oauth2.googleapis.com/token", {
   body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${input}.${b64(signer.sign(sa.private_key))}` }),
 })).json();
 
-const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users/${encodeURIComponent(userId)}`;
+const PREFIX = process.env.COLLECTION_PREFIX ?? "";
+const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/${PREFIX}users/${encodeURIComponent(userId)}`;
 const res = await fetch(url, { method: "DELETE", headers: { authorization: `Bearer ${tok.access_token}` } });
 console.log(res.ok ? `삭제됨: users/${userId}` : `실패 (${res.status}): ${await res.text()}`);

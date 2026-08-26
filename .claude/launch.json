@@ -14,13 +14,9 @@
     },
     {
       "name": "webmail",
-      "runtimeExecutable": "python3",
+      "runtimeExecutable": "node",
       "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8080",
-        "--directory",
-        "site"
+        "scripts/dev-server.mjs"
       ],
       "port": 8080,
       "url": "http://localhost:8080"

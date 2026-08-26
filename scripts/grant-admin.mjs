@@ -16,10 +16,11 @@ const { access_token } = await (await fetch("https://oauth2.googleapis.com/token
   body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${input}.${b64(signer.sign(sa.private_key))}` }),
 })).json();
 
+const PREFIX = process.env.COLLECTION_PREFIX ?? "";
 const BASE = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents`;
 const H = { authorization: `Bearer ${access_token}`, "content-type": "application/json" };
 
-const list = await (await fetch(`${BASE}/users?pageSize=50`, { headers: H })).json();
+const list = await (await fetch(`${BASE}/${PREFIX}users?pageSize=50`, { headers: H })).json();
 const users = (list.documents ?? []).map((d) => ({
   id: d.name.split("/").pop(),
   is_admin: d.fields?.is_admin?.booleanValue ?? false,
@@ -28,10 +29,19 @@ const users = (list.documents ?? []).map((d) => ({
 console.log("계정 목록:");
 for (const u of users) console.log(`  ${u.id}  (${u.display_name})  관리자: ${u.is_admin}`);
 
-const ids = target ? [target] : users.filter((u) => !u.is_admin).map((u) => u.id);
+// 존재하는 계정만 대상으로 한다.
+// Firestore PATCH 는 문서가 없으면 새로 만들기 때문에, 오타 하나로
+// 비밀번호 없는 관리자 문서가 생겨버린다.
+const known = new Set(users.map((u) => u.id));
+const ids = (target ? [target] : users.filter((u) => !u.is_admin).map((u) => u.id)).filter((id) => {
+  if (known.has(id)) return true;
+  console.log(`건너뜀 — 없는 계정: ${id}`);
+  return false;
+});
+
 for (const id of ids) {
   const res = await fetch(
-    `${BASE}/users/${encodeURIComponent(id)}?updateMask.fieldPaths=is_admin`,
+    `${BASE}/${PREFIX}users/${encodeURIComponent(id)}?updateMask.fieldPaths=is_admin`,
     { method: "PATCH", headers: H, body: JSON.stringify({ fields: { is_admin: { booleanValue: true } } }) },
   );
   console.log(res.ok ? `관리자 권한 부여: ${id}` : `실패 ${id}: ${await res.text()}`);
