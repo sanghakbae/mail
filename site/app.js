@@ -571,6 +571,48 @@ $("#refresh").addEventListener("click", () => loadMessages());
 
 /* ================= 읽기 ================= */
 
+/**
+ * 메일 본문 HTML 을 iframe 에 넣을 완전한 문서로 감싼다.
+ *
+ * 두 가지를 강제한다.
+ * 1) color-scheme: light — 부모의 `light dark` 가 상속되면 다크모드에서
+ *    본문 기본 글자색이 흰색이 되어, 흰 배경 위에서 글씨가 사라진다.
+ *    메일 HTML 은 대부분 밝은 배경을 전제로 쓰이므로 밝은 쪽으로 고정한다.
+ * 2) base target=_blank — 링크·버튼이 새 탭으로 열리게 한다.
+ *    (발신자가 넣은 base 태그는 걷어낸다)
+ */
+function buildMailDocument(html) {
+  const cleaned = String(html)
+    .replace(/<base\b[^>]*>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<base target="_blank" rel="noopener noreferrer">
+<style>
+  :root { color-scheme: light; }
+  html, body {
+    margin: 0;
+    padding: 14px;
+    background: #ffffff;
+    color: #1a1a1a;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  img, video, table { max-width: 100%; }
+  img { height: auto; }
+  a { color: #0b57d0; }
+</style>
+</head>
+<body>${cleaned}</body>
+</html>`;
+}
+
 async function openMessage(id) {
   state.selectedId = id;
   renderList();
@@ -640,11 +682,14 @@ function renderMessage(msg, attachments) {
 
   const body = $("#read-body");
   if (msg.body_html) {
-    // 발신자가 보낸 HTML 은 신뢰할 수 없다. 스크립트를 막은 sandbox iframe 안에서만 렌더링한다.
+    // 발신자가 보낸 HTML 은 신뢰할 수 없다. sandbox iframe 안에서만 렌더링한다.
+    //
+    // allow-scripts / allow-same-origin 은 주지 않는다 (스크립트 실행·부모 접근 차단).
+    // allow-popups 만 열어 본문의 링크·버튼이 새 탭으로 열리게 한다.
     const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "");
+    frame.setAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
     frame.setAttribute("referrerpolicy", "no-referrer");
-    frame.srcdoc = msg.body_html;
+    frame.srcdoc = buildMailDocument(msg.body_html);
     body.appendChild(frame);
   } else {
     const pre = document.createElement("pre");
