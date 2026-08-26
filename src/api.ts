@@ -328,38 +328,39 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
     // 통계
     if (path === "/api/admin/stats" && method === "GET") {
-      // 규모가 커지면 집계 쿼리로 바꿔야 한다. 지금은 전체를 훑어 센다.
-      const messages = await db.list("messages");
-      const attachments = await db.list("attachments");
+      // 전체 문서를 가져와 세면 메일이 늘어날수록 느려진다. 집계 쿼리를 쓴다.
+      const countWhere = (where: Array<[string, string, unknown]>) =>
+        db.aggregate("messages", { where }).then((r) => r.count);
 
-      const perMailbox = new Map<string, { total: number; unread: number }>();
-      let inbox = 0, sent = 0, spam = 0, trash = 0, unread = 0;
-      for (const m of messages) {
-        const folder = String(m.folder ?? "");
-        if (folder === "inbox") inbox++;
-        else if (folder === "sent") sent++;
-        else if (folder === "spam") spam++;
-        else if (folder === "trash") trash++;
-        if (!m.is_read) unread++;
+      const [total, inbox, sent, spam, trash, unread, attachStats, boxes] = await Promise.all([
+        db.aggregate("messages", {}).then((r) => r.count),
+        countWhere([["folder", "EQUAL", "inbox"]]),
+        countWhere([["folder", "EQUAL", "sent"]]),
+        countWhere([["folder", "EQUAL", "spam"]]),
+        countWhere([["folder", "EQUAL", "trash"]]),
+        countWhere([["is_read", "EQUAL", false]]),
+        db.aggregate("attachments", { sumField: "size_bytes" }),
+        db.list("mailboxes"),
+      ]);
 
-        const key = String(m.mailbox ?? "(없음)");
-        const entry = perMailbox.get(key) ?? { total: 0, unread: 0 };
-        entry.total++;
-        if (!m.is_read) entry.unread++;
-        perMailbox.set(key, entry);
-      }
-
-      const attachmentBytes = attachments.reduce(
-        (sum, a) => sum + (Number(a.size_bytes) || 0), 0,
+      // 주소별 건수 — 주소 수는 적으므로 주소마다 한 번씩 센다
+      const perMailbox = await Promise.all(
+        boxes.map(async (box) => ({
+          mailbox: String(box.address),
+          total: await countWhere([["mailbox", "EQUAL", String(box.address)]]),
+        })),
       );
 
       return json({
-        total: messages.length,
-        inbox, sent, spam, trash, unread,
-        attachments: attachments.length,
-        attachment_bytes: attachmentBytes,
-        per_mailbox: Array.from(perMailbox, ([mailbox, v]) => ({ mailbox, ...v }))
-          .sort((a, b) => b.total - a.total),
+        total,
+        inbox,
+        sent,
+        spam,
+        trash,
+        unread,
+        attachments: attachStats.count,
+        attachment_bytes: attachStats.sum,
+        per_mailbox: perMailbox.sort((a, b) => b.total - a.total),
       });
     }
 

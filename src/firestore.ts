@@ -337,6 +337,47 @@ export class Firestore {
       .map((r) => ({ id: docId(r.document!.name), ...fieldsToObject(r.document!.fields) }));
   }
 
+  /**
+   * 집계 쿼리 (COUNT / SUM).
+   * 전체 문서를 가져와 세면 메일이 늘어날수록 느려지고 메모리도 위험하다.
+   */
+  async aggregate(
+    collection: string,
+    opts: {
+      where?: Array<[string, string, unknown]>;
+      count?: boolean;
+      sumField?: string;
+    },
+  ): Promise<{ count: number; sum: number }> {
+    const filters = (opts.where ?? []).map(([field, op, value]) => ({
+      fieldFilter: { field: { fieldPath: field }, op, value: toFs(value) },
+    }));
+
+    const structuredQuery: Record<string, unknown> = {
+      from: [{ collectionId: this.collection(collection) }],
+    };
+    if (filters.length === 1) structuredQuery.where = filters[0];
+    else if (filters.length > 1) {
+      structuredQuery.where = { compositeFilter: { op: "AND", filters } };
+    }
+
+    const aggregations: Array<Record<string, unknown>> = [];
+    if (opts.count !== false) aggregations.push({ alias: "c", count: {} });
+    if (opts.sumField) {
+      aggregations.push({ alias: "s", sum: { field: { fieldPath: opts.sumField } } });
+    }
+
+    const res = (await this.request("POST", ":runAggregationQuery", {
+      structuredAggregationQuery: { structuredQuery, aggregations },
+    })) as Array<{ result?: { aggregateFields?: Record<string, FsValue> } }> | null;
+
+    const fields = res?.find((r) => r.result)?.result?.aggregateFields ?? {};
+    return {
+      count: Number(fromFs(fields.c) ?? 0),
+      sum: Number(fromFs(fields.s) ?? 0),
+    };
+  }
+
   /** 컬렉션 전체를 가볍게 나열 */
   async list(collection: string, pageSize = 300): Promise<Array<Record<string, unknown>>> {
     const out: Array<Record<string, unknown>> = [];

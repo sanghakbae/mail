@@ -45,8 +45,28 @@ async function api(path, options = {}) {
       throw new Error(`서버 응답을 해석할 수 없다: ${text.slice(0, 200)}`);
     }
   }
+
+  // 세션이 끊기면(만료, 다른 기기에서 비밀번호 변경 등) 바로 로그인 화면으로.
+  // 그냥 두면 오래된 목록을 계속 보여주게 된다.
+  if (res.status === 401 && state.me) {
+    handleSessionExpired();
+  }
+
   if (!res.ok) throw new Error((data && data.error) || `요청 실패 (${res.status})`);
   return data;
+}
+
+/** 세션이 끊겼을 때 화면을 초기 상태로 되돌린다 */
+function handleSessionExpired() {
+  state.me = null;
+  state.messages = [];
+  state.checked.clear();
+  state.selectedId = null;
+  stopAutoRefresh();
+  document.querySelectorAll(".modal-backdrop").forEach((el) => el.remove());
+  $("#app").classList.add("hidden");
+  $("#login").classList.remove("hidden");
+  $("#login-error").textContent = "세션이 만료되었습니다. 다시 로그인하세요.";
 }
 
 function esc(value) {
