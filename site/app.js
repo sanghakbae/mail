@@ -134,6 +134,26 @@ const hasDrawer = () => window.matchMedia("(max-width: 1000px)").matches;
 
 let installPrompt = null;
 const installButton = $("#install-app");
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+  navigator.standalone === true;
+
+function showIOSInstallGuide() {
+  return dialog({
+    title: "홈 화면에 추가",
+    message: "Safari 하단의 공유 버튼을 누른 후 ‘홈 화면에 추가’를 선택하세요.",
+    confirmLabel: "확인",
+  });
+}
+
+if (isIOS && !isStandalone) {
+  $("#pwa-guide").classList.remove("hidden");
+  installButton.classList.remove("hidden");
+  installButton.querySelector(".name").textContent = "홈 화면에 추가";
+  $("#pwa-guide").addEventListener("click", showIOSInstallGuide);
+  installButton.addEventListener("click", showIOSInstallGuide);
+}
 
 function syncNetworkStatus() {
   $("#network-banner").hidden = navigator.onLine;
@@ -154,6 +174,7 @@ window.addEventListener("beforeinstallprompt", (event) => {
 });
 
 installButton.addEventListener("click", async () => {
+  if (isIOS) return;
   if (!installPrompt) return;
   installPrompt.prompt();
   await installPrompt.userChoice;
