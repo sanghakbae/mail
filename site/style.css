@@ -64,6 +64,23 @@ body {
 button, input, textarea, select { font: inherit; color: inherit; }
 .hidden { display: none !important; }
 
+.network-banner {
+  position: fixed;
+  z-index: 120;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: var(--shadow-2);
+  font-size: 12.5px;
+  text-align: center;
+}
+
 /* ================= 공통 컨트롤 ================= */
 
 .btn {

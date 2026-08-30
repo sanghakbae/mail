@@ -5,14 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>sanghak.kr 메일</title>
     <meta name="description" content="sanghak.kr 도메인 웹메일" />
+    <meta name="application-name" content="sanghak 메일" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="sanghak 메일" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./style.css?v=dev" />
     <script src="./config.js?v=dev"></script>
   </head>
   <body>
+    <div class="network-banner" id="network-banner" role="status" aria-live="polite" hidden>
+      오프라인 상태입니다. 연결되면 메일을 다시 불러올 수 있어요.
+    </div>
     <!-- 로그인 -->
     <section id="login">
       <div class="login-bg" aria-hidden="true"></div>
@@ -96,6 +105,7 @@
         </div>
 
         <div class="sidebar-foot">
+          <button class="nav-item hidden" id="install-app"><span class="name">앱 설치</span></button>
           <button class="nav-item" id="open-admin"><span class="name">관리자</span></button>
           <button class="nav-item" id="logout"><span class="name">로그아웃</span></button>
         </div>

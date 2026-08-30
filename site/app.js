@@ -130,6 +130,49 @@ function toast(message) {
 const isNarrow = () => window.matchMedia("(max-width: 700px)").matches;
 const hasDrawer = () => window.matchMedia("(max-width: 1000px)").matches;
 
+/* ================= PWA ================= */
+
+let installPrompt = null;
+const installButton = $("#install-app");
+
+function syncNetworkStatus() {
+  $("#network-banner").hidden = navigator.onLine;
+}
+
+window.addEventListener("online", () => {
+  syncNetworkStatus();
+  toast("다시 연결되었습니다.");
+  if (state.me) loadMessages().catch(() => {});
+});
+window.addEventListener("offline", syncNetworkStatus);
+syncNetworkStatus();
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  installButton.classList.remove("hidden");
+});
+
+installButton.addEventListener("click", async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  installButton.classList.add("hidden");
+});
+
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  installButton.classList.add("hidden");
+  toast("앱이 설치되었습니다.");
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+
 function setReading(on) {
   const app = $("#app");
   app.classList.toggle("reading", Boolean(on) && isNarrow());
