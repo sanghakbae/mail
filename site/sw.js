@@ -1,4 +1,4 @@
-const CACHE_NAME = "sanghak-mail-v3";
+const CACHE_NAME = "sanghak-mail-v4";
 const APP_SHELL = [
   "./",
   "./index.html",

@@ -190,7 +190,35 @@ window.addEventListener("appinstalled", () => {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((registration) => {
+      let updateReady = false;
+
+      const showUpdate = () => {
+        if (updateReady || !navigator.serviceWorker.controller) return;
+        updateReady = true;
+        const banner = document.createElement("div");
+        banner.className = "update-banner";
+        banner.setAttribute("role", "status");
+        banner.innerHTML = `
+          <span>상학 메일의 새 버전이 있습니다.</span>
+          <button class="btn btn-primary" type="button">업데이트</button>
+        `;
+        banner.querySelector("button").addEventListener("click", () => location.reload());
+        document.body.appendChild(banner);
+      };
+
+      if (registration.waiting) showUpdate();
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "installed") showUpdate();
+        });
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") registration.update().catch(() => {});
+      });
+    }).catch(() => {});
   });
 }
 

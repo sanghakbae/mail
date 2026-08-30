@@ -81,6 +81,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
   text-align: center;
 }
 
+.update-banner {
+  position: fixed;
+  z-index: 121;
+  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-2);
+}
+.update-banner span { font-size: 13px; font-weight: 600; }
+.update-banner .btn { flex-shrink: 0; }
+
+@media (max-width: 700px) {
+  .update-banner {
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    max-width: none;
+    justify-content: space-between;
+  }
+}
+
 /* ================= 공통 컨트롤 ================= */
 
 .btn {
