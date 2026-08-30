@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "sanghak.kr 메일",
-  "short_name": "sanghak 메일",
+  "name": "상학 메일",
+  "short_name": "상학 메일",
   "description": "sanghak.kr 도메인 웹메일",
   "lang": "ko-KR",
   "start_url": "/",
