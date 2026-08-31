@@ -139,7 +139,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       return bad("SETUP_TOKEN 이 일치하지 않는다", 403);
     }
     const body = (await request.json().catch(() => null)) as
-      | { id?: string; password?: string; display_name?: string; addresses?: string[] }
+      | { id?: string; password?: string; display_name?: string; addresses?: string[]; read_addresses?: string[] }
       | null;
     if (!body?.id || !body.password) return bad("id 와 password 가 필요하다");
     if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
@@ -151,6 +151,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       password_hash: await hashPassword(body.password),
       display_name: body.display_name ?? body.id,
       addresses: body.addresses ?? ["*"],
+      read_addresses: body.read_addresses?.length
+        ? body.read_addresses
+        : [`${body.id.toLowerCase()}@${env.MAIL_DOMAIN}`],
       // 최초 계정은 관리자여야 관리자 화면에 들어갈 수 있다
       is_admin: true,
       created_at: new Date().toISOString(),
@@ -201,6 +204,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       id: user.id,
       display_name: user.display_name ?? user.id,
       addresses: user.addresses ?? ["*"],
+      read_addresses: user.read_addresses ?? [`${user.id.toLowerCase()}@${env.MAIL_DOMAIN}`],
       is_admin: Boolean(user.is_admin),
       domain: env.MAIL_DOMAIN,
     });
@@ -247,6 +251,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         id: u.id,
         display_name: u.display_name ?? u.id,
         addresses: u.addresses ?? ["*"],
+        read_addresses: u.read_addresses ?? [`${String(u.id).toLowerCase()}@${env.MAIL_DOMAIN}`],
         is_admin: Boolean(u.is_admin),
         created_at: u.created_at ?? null,
         password_changed_at: u.password_changed_at ?? null,
@@ -259,7 +264,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (path === "/api/admin/users" && method === "POST") {
       const body = (await request.json().catch(() => null)) as {
         id?: string; password?: string; display_name?: string;
-        addresses?: string[]; is_admin?: boolean;
+        addresses?: string[]; read_addresses?: string[]; is_admin?: boolean;
       } | null;
       if (!body?.id || !body.password) return bad("아이디와 비밀번호가 필요하다");
       if (body.password.length < 8) return bad("비밀번호는 8자 이상이어야 한다");
@@ -272,6 +277,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         password_hash: await hashPassword(body.password),
         display_name: body.display_name || body.id,
         addresses: body.addresses?.length ? body.addresses : ["*"],
+        read_addresses: body.read_addresses?.length
+          ? body.read_addresses
+          : [`${body.id.toLowerCase()}@${env.MAIL_DOMAIN}`],
         is_admin: Boolean(body.is_admin),
         created_at: new Date().toISOString(),
       });
@@ -288,7 +296,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
       const body = (await request.json().catch(() => null)) as {
         password?: string; display_name?: string;
-        addresses?: string[]; is_admin?: boolean;
+        addresses?: string[]; read_addresses?: string[]; is_admin?: boolean;
       } | null;
       if (!body) return bad("본문이 필요하다");
 
@@ -296,6 +304,11 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       if (typeof body.display_name === "string") patch.display_name = body.display_name || targetId;
       if (Array.isArray(body.addresses)) {
         patch.addresses = body.addresses.length ? body.addresses : ["*"];
+      }
+      if (Array.isArray(body.read_addresses)) {
+        patch.read_addresses = body.read_addresses.length
+          ? body.read_addresses
+          : [`${targetId.toLowerCase()}@${env.MAIL_DOMAIN}`];
       }
       if (typeof body.is_admin === "boolean") {
         // 자기 자신의 관리자 권한은 뺄 수 없다 (관리자가 0명이 되는 상황 방지)
@@ -389,6 +402,15 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   // ---- 메일함 목록 ----
   if (path === "/api/mailboxes" && method === "GET") {
     let boxes = await db.list("mailboxes");
+    const adminView = user.is_admin && url.searchParams.get("admin") === "1";
+    const sendView = url.searchParams.get("purpose") === "send";
+    if (!adminView) {
+      boxes = boxes.filter((box) =>
+        sendView
+          ? canUseAddress(user, String(box.address ?? ""))
+          : canAccessMailbox(user, String(box.address ?? "")),
+      );
+    }
     // 메일이 도착해 자동 등록된 주소는 기본적으로 감춘다.
     // (사이드바가 수신 이력만으로 지저분해지지 않게 — 관리자 화면은 전체를 본다)
     if (url.searchParams.get("include_auto") !== "1") {
@@ -410,6 +432,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (!/^[a-z0-9._%+-]+@/.test(address)) return bad("주소 형식이 올바르지 않다");
     const addrError = validateDocId(address);
     if (addrError) return bad(`주소를 쓸 수 없다: ${addrError}`);
+    if (!user.is_admin && !canAccessMailbox(user, address) && !canUseAddress(user, address)) {
+      return bad("이 메일 주소를 등록할 권한이 없다", 403);
+    }
     await db.set("mailboxes", address, {
       address,
       label: body.label ?? address.split("@")[0],
@@ -420,6 +445,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   }
 
   if (path.startsWith("/api/mailboxes/") && method === "DELETE") {
+    if (!user.is_admin) return bad("관리자 권한이 필요하다", 403);
     const address = decodeURIComponent(path.slice("/api/mailboxes/".length));
     await db.delete("mailboxes", address);
     return json({ ok: true });

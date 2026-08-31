@@ -356,13 +356,17 @@ test("비밀번호를 바꾸면 기존 세션 토큰이 무효가 된다", async
   assert.equal(newClaims.tokenVersion, userDoc.token_version);
 });
 
-test("메일함 접근 권한은 보내기 권한과 같은 규칙을 쓴다", async () => {
+test("메일함 접근 권한은 보내기 권한과 분리된다", async () => {
   const { canAccessMailbox } = await import("../src/auth.ts");
-  const all = { id: "a", password_hash: "" }; // addresses 미지정 = 전체
-  assert.equal(canAccessMailbox(all, "anything@sanghak.kr"), true);
+  const legacy = { id: "bae", password_hash: "", addresses: ["*"] };
+  assert.equal(canAccessMailbox(legacy, "bae@sanghak.kr"), true);
+  assert.equal(canAccessMailbox(legacy, "anything@sanghak.kr"), false);
 
-  const limited = { id: "b", password_hash: "", addresses: ["bae@sanghak.kr"] };
+  const limited = { id: "b", password_hash: "", addresses: ["*"], read_addresses: ["bae@sanghak.kr"] };
   assert.equal(canAccessMailbox(limited, "bae@sanghak.kr"), true);
   assert.equal(canAccessMailbox(limited, "BAE@sanghak.kr"), true, "대소문자 무시");
   assert.equal(canAccessMailbox(limited, "totoriverce@sanghak.kr"), false);
+
+  const all = { id: "admin", password_hash: "", read_addresses: ["*"] };
+  assert.equal(canAccessMailbox(all, "anything@sanghak.kr"), true);
 });

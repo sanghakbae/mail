@@ -222,8 +222,9 @@ wrangler email routing addresses list
   두기 때문에, 10만 회를 6라운드 연쇄해 권장 작업량(60만 회 상당)을 맞춘다.
 - 세션은 HMAC 서명 쿠키다. 사용자 문서의 `token_version` 을 함께 서명하므로,
   비밀번호가 바뀌면 다른 기기에 남아 있던 세션이 모두 끊긴다.
-- 계정마다 쓸 수 있는 주소를 지정할 수 있고(`addresses`), 이 권한은 **보내기뿐 아니라
-  읽기에도** 적용된다. 목록·본문·첨부·원본·스레드 모두 권한 밖 메일함은 걸러낸다.
+- 계정마다 발송 주소(`addresses`)와 받은 메일 열람 주소(`read_addresses`)를 별도로
+  지정한다. 기존 계정에 `read_addresses`가 없으면 `아이디@sanghak.kr`만 열람할 수
+  있다. 목록·본문·첨부·원본·스레드 모두 권한 밖 메일함은 걸러낸다.
 - 발신자가 보낸 HTML 은 `sandbox` iframe 안에서만 렌더링한다.
   `allow-scripts` 와 `allow-same-origin` 은 주지 않으므로 스크립트가 실행되지 않고
   부모 문서에 접근할 수도 없다. `allow-popups` 만 열어 본문의 링크가 새 탭으로

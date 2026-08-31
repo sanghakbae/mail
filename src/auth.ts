@@ -20,6 +20,8 @@ export interface User {
   display_name?: string;
   /** 이 사용자가 쓸 수 있는 주소. ["*"] 면 도메인 전체 */
   addresses?: string[];
+  /** 이 사용자가 받은 메일을 볼 수 있는 주소. 미지정 시 아이디와 같은 로컬 파트만 허용 */
+  read_addresses?: string[];
   /** 관리자 화면 접근 권한 */
   is_admin?: boolean;
   password_changed_at?: string;
@@ -240,9 +242,17 @@ export async function currentUser(
   return user;
 }
 
-/** 이 사용자가 해당 메일함의 메일을 볼 수 있는지 (보내기 권한과 같은 규칙) */
+/** 이 사용자가 해당 메일함의 메일을 볼 수 있는지 */
 export function canAccessMailbox(user: User, mailbox: string): boolean {
-  return canUseAddress(user, mailbox);
+  const allowed = user.read_addresses;
+  if (allowed?.includes("*")) return true;
+  if (allowed?.length) {
+    return allowed.some((a) => a.toLowerCase() === mailbox.toLowerCase());
+  }
+
+  // 기존 계정에는 read_addresses 필드가 없다. 별도 마이그레이션 없이도
+  // 로그인 아이디와 같은 주소만 보이도록 안전한 기본값을 적용한다.
+  return mailbox.split("@", 1)[0]?.toLowerCase() === user.id.toLowerCase();
 }
 
 /** 이 사용자가 해당 주소로 보낼 수 있는지 */

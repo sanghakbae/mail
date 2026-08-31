@@ -440,7 +440,7 @@ async function loadMailboxes() {
   // 사이드바용 — 직접 등록한 주소만
   state.mailboxes = (await api("/api/mailboxes")).mailboxes || [];
   // 보내는 주소 후보 — 자동 등록된 주소도 포함해야 그 주소로 답장할 수 있다
-  state.sendableAddresses = (await api("/api/mailboxes?include_auto=1")).mailboxes || [];
+  state.sendableAddresses = (await api("/api/mailboxes?include_auto=1&purpose=send")).mailboxes || [];
   renderMailboxes();
 }
 
@@ -1372,17 +1372,19 @@ async function renderAdminTab(tab) {
 async function renderAdminUsers(host) {
   const { users } = await api("/api/admin/users");
   host.innerHTML = `
-    <div class="note">계정을 추가하면 그 사람이 웹메일에 로그인할 수 있습니다.
-      쓸 수 있는 주소를 <code>*</code> 로 두면 sanghak.kr 의 모든 주소로 보낼 수 있습니다.</div>
+    <div class="note">받은 메일 주소와 발송 주소 권한은 서로 별개입니다.
+      기존 계정의 받은 메일 주소 기본값은 <code>아이디@${esc(CFG.domain)}</code>이며,
+      각 항목을 <code>*</code> 로 두면 모든 주소를 허용합니다.</div>
     <div class="table-wrap">
       <table class="grid">
-        <thead><tr><th>아이디</th><th>이름</th><th>보낼 수 있는 주소</th><th>관리자</th><th>생성</th><th></th></tr></thead>
+        <thead><tr><th>아이디</th><th>이름</th><th>받은 메일 주소</th><th>보낼 수 있는 주소</th><th>관리자</th><th>생성</th><th></th></tr></thead>
         <tbody>
           ${users
             .map(
               (u) => `<tr>
                 <td><b>${esc(u.id)}</b></td>
                 <td>${esc(u.display_name || "")}</td>
+                <td>${esc((u.read_addresses || [`${u.id}@${CFG.domain}`]).join(", "))}</td>
                 <td>${esc((u.addresses || ["*"]).join(", "))}</td>
                 <td>${u.is_admin ? "예" : "—"}</td>
                 <td>${esc((u.created_at || "").slice(0, 10))}</td>
@@ -1446,6 +1448,10 @@ function userForm(user) {
         <input id="u-name" value="${esc(user?.display_name || "")}" />
       </div>
       <div class="field">
+        <label for="u-read-addr">받은 메일을 볼 주소 (쉼표로 구분, * 는 전체)</label>
+        <input id="u-read-addr" value="${esc((user?.read_addresses || (user ? [`${user.id}@${CFG.domain}`] : [])).join(", "))}" />
+      </div>
+      <div class="field">
         <label for="u-addr">보낼 수 있는 주소 (쉼표로 구분, * 는 전체)</label>
         <input id="u-addr" value="${esc((user?.addresses || ["*"]).join(", "))}" />
       </div>
@@ -1475,9 +1481,14 @@ function userForm(user) {
       .split(",")
       .map((a) => a.trim())
       .filter(Boolean);
+    const readAddresses = $("#u-read-addr").value
+      .split(",")
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean);
     const payload = {
       display_name: $("#u-name").value.trim(),
       addresses: addresses.length ? addresses : ["*"],
+      read_addresses: readAddresses,
       is_admin: $("#u-admin").checked,
     };
     const pw = $("#u-pw").value;
@@ -1550,7 +1561,7 @@ function passwordForm() {
 }
 
 async function renderAdminAddresses(host) {
-  const { mailboxes } = await api("/api/mailboxes?include_auto=1");
+  const { mailboxes } = await api("/api/mailboxes?include_auto=1&admin=1");
   host.innerHTML = `
     <div class="note">catch-all 이 Worker 로 연결되어 있으므로, 여기에 없는 주소로 온 메일도
       수신되고 자동으로 목록에 추가됩니다. 미리 등록하면 보내는 주소로 고를 수 있습니다.</div>
