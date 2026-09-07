@@ -222,6 +222,20 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+/**
+ * 현재 본문 iframe 에 걸어 둔 리스너를 걷어내는 함수.
+ * 읽기 창 내용을 갈아끼울 때마다 호출한다. 안 그러면 메일을 열 때마다
+ * window resize 리스너와 떨어져 나간 문서가 계속 쌓인다.
+ */
+let disposeFrame = null;
+
+/** 읽기 창 내용을 통째로 갈아끼운다 (이전 iframe 뒷정리 포함) */
+function setReaderHtml(html) {
+  disposeFrame?.();
+  disposeFrame = null;
+  $("#reader").innerHTML = html;
+}
+
 function setReading(on) {
   const app = $("#app");
   app.classList.toggle("reading", Boolean(on) && isNarrow());
@@ -229,11 +243,11 @@ function setReading(on) {
   app.classList.toggle("has-msg", Boolean(on));
   if (!on) {
     state.selectedId = null;
-    $("#reader").innerHTML = `
+    setReaderHtml(`
       <div class="empty">
         <p>읽을 메일을 선택하세요.</p>
         <p class="hint">j / k 로 이동, Enter 로 열기, e 읽음, s 중요, # 휴지통</p>
-      </div>`;
+      </div>`);
   }
 }
 
@@ -705,13 +719,72 @@ function buildMailDocument(html) {
 </html>`;
 }
 
+/**
+ * iframe 높이를 본문 내용 높이에 맞춘다.
+ *
+ * 안 맞추면 두 가지가 같이 생긴다.
+ * - 짧은 메일: iframe 아래가 빈 공간으로 남는다 (CSS flex 로 해결)
+ * - 긴 메일: iframe 안에 두 번째 스크롤바가 생기고 읽기 창 아래는 논다
+ *
+ * 내용 높이를 재려면 same-origin 이 필요하다. srcdoc + allow-same-origin 은
+ * 부모와 같은 출처가 되지만, allow-scripts 를 주지 않으므로 본문 안에서는
+ * 스크립트가 아예 실행되지 않는다 (부모로 넘어올 경로가 없다).
+ *
+ * ResizeObserver 는 다른 문서(iframe 안)의 요소에 대해 콜백이 오지 않는다.
+ * 부모 realm 으로 만들든 iframe realm 으로 만들든 마찬가지여서,
+ * 높이가 바뀔 만한 사건을 직접 붙잡아 다시 잰다.
+ */
+function fitFrame(frame) {
+  // 이미 다른 메일로 넘어간 뒤 뒤늦게 load 가 온 경우
+  if (!frame.isConnected) return;
+
+  let doc;
+  try {
+    doc = frame.contentDocument;
+  } catch {
+    return; // 측정 불가 — CSS 기본 높이로 둔다
+  }
+  if (!doc || !doc.body) return;
+
+  const measure = () => {
+    // 읽기 창이 숨어 있으면(모바일 목록 화면, display:none) 레이아웃이 없어
+    // 엉뚱한 높이가 나온다. 그때 재서 박아버리면 다시 보일 때 높이가 틀어진다.
+    if (!frame.isConnected || !frame.offsetWidth) return;
+    // 박아 둔 높이를 먼저 풀어야 "줄어드는" 경우도 따라간다.
+    const prev = frame.style.minHeight;
+    frame.style.minHeight = "";
+    const h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+    // 0 이 나오면 못 잰 것이다. 원래 값을 되돌린다.
+    frame.style.minHeight = h > 0 ? `${h}px` : prev;
+  };
+
+  measure();
+
+  // 이미지가 늦게 도착하면 본문이 길어진다.
+  for (const img of doc.images) {
+    if (img.complete) continue;
+    img.addEventListener("load", measure, { once: true });
+    img.addEventListener("error", measure, { once: true });
+  }
+
+  // 창 폭이 바뀌면 줄바꿈이 달라져 높이도 달라진다.
+  const onResize = () => measure();
+  window.addEventListener("resize", onResize);
+  // 앞선 iframe 이 남긴 리스너가 있으면 여기서 확실히 걷어낸다
+  disposeFrame?.();
+  disposeFrame = () => window.removeEventListener("resize", onResize);
+
+  // 웹폰트처럼 위 둘로 못 잡는 변화에 대한 보험
+  setTimeout(measure, 500);
+  setTimeout(measure, 2000);
+}
+
 async function openMessage(id) {
   state.selectedId = id;
   renderList();
   setReading(true);
 
-  const reader = $("#reader");
-  reader.innerHTML = `<div class="empty">불러오는 중…</div>`;
+  setReaderHtml(`<div class="empty">불러오는 중…</div>`);
   try {
     const data = await api(`/api/messages/${encodeURIComponent(id)}`);
     renderMessage(data.message, data.attachments || []);
@@ -721,7 +794,7 @@ async function openMessage(id) {
       renderList();
     }
   } catch (error) {
-    reader.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+    setReaderHtml(`<div class="empty">${esc(error.message)}</div>`);
   }
 }
 
@@ -730,7 +803,7 @@ function renderMessage(msg, attachments) {
   const to = (msg.to_addrs || []).join(", ");
   const cc = (msg.cc_addrs || []).join(", ");
 
-  $("#reader").innerHTML = `
+  setReaderHtml(`
     <div class="read-head">
       <div class="read-top">
         <button class="icon-btn drawer-only" id="back" aria-label="목록으로">←</button>
@@ -770,17 +843,23 @@ function renderMessage(msg, attachments) {
       </div>
     </div>
     <div class="read-body" id="read-body"></div>
-  `;
+  `);
 
   const body = $("#read-body");
   if (msg.body_html) {
     // 발신자가 보낸 HTML 은 신뢰할 수 없다. sandbox iframe 안에서만 렌더링한다.
     //
-    // allow-scripts / allow-same-origin 은 주지 않는다 (스크립트 실행·부모 접근 차단).
-    // allow-popups 만 열어 본문의 링크·버튼이 새 탭으로 열리게 한다.
+    // allow-scripts 는 주지 않는다 (본문 스크립트 실행 차단).
+    // allow-popups 로 본문의 링크·버튼이 새 탭으로 열리게 한다.
     const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+    // allow-same-origin 은 높이 측정을 위해서만 준다. allow-scripts 가 없으면
+    // 본문의 스크립트는 실행되지 않으므로 부모에 접근할 수단이 없다.
+    frame.setAttribute(
+      "sandbox",
+      "allow-popups allow-popups-to-escape-sandbox allow-same-origin",
+    );
     frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.addEventListener("load", () => fitFrame(frame));
     frame.srcdoc = buildMailDocument(msg.body_html);
     body.appendChild(frame);
   } else {

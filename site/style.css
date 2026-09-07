@@ -548,9 +548,25 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ---------- 읽기 ---------- */
 
-.read-pane { background: var(--panel); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/*
+ * 세로 flex 로 쌓아 본문이 남는 높이를 전부 차지하게 한다.
+ * (본문이 짧은 메일에서 아래쪽이 빈 채로 남던 문제)
+ */
+.read-pane {
+  background: var(--panel);
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+}
+
+/* 실제 내용은 #reader 안에 들어간다. 읽기 창의 높이를 그대로 물려받아야
+   본문(.read-body)이 남는 높이까지 늘어난다. */
+#reader {
+  flex: 1 0 auto;
+  display: flex; flex-direction: column;
+}
 
 .read-head {
+  flex-shrink: 0;
   position: sticky; top: 0; z-index: 2;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -573,8 +589,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .meta { color: var(--muted); font-size: 12px; word-break: break-all; }
 .actions { display: flex; gap: 5px; flex-wrap: wrap; }
 
-.read-body { padding: 16px 20px 44px; overflow-wrap: break-word; }
-.read-body pre { white-space: pre-wrap; font-family: inherit; margin: 0; font-size: 14px; }
+.read-body {
+  flex: 1 0 auto;
+  display: flex; flex-direction: column;
+  padding: 16px 20px 44px;
+  overflow-wrap: break-word;
+}
+.read-body pre { flex-shrink: 0; white-space: pre-wrap; font-family: inherit; margin: 0; font-size: 14px; }
 .read-body iframe {
   /*
    * iOS Safari 는 iframe 에 width:100% 를 무시하고 콘텐츠 폭으로 늘린다.
@@ -584,11 +605,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
   width: 1px;
   min-width: 100%;
   max-width: 100%;
-  min-height: 58vh;
+  /*
+   * flex: 1 → 본문이 짧으면 남는 높이까지 늘어난다.
+   * 본문이 길면 JS(fitFrame)가 내용 높이를 min-height 로 박아
+   * iframe 안에 두 번째 스크롤바가 생기지 않게 한다.
+   */
+  flex: 1 0 auto;
+  min-height: 320px;
   border: none; background: #fff; border-radius: 10px;
 }
 
 .attachments {
+  flex-shrink: 0;
   margin-top: 16px; padding: 10px 12px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -920,7 +948,7 @@ table.grid tr:last-child td { border-bottom: none; }
   .read-head { padding: 14px 16px 12px; padding-top: max(14px, env(safe-area-inset-top)); }
   .read-head h2 { font-size: 17px; }
   .read-body { padding: 16px 16px calc(56px + env(safe-area-inset-bottom)); }
-  .read-body iframe { min-height: 50dvh; }
+  .read-body iframe { min-height: 40dvh; }
 
   /* 손가락으로 누르기 좋게 */
   :root { --row-h: 60px; }

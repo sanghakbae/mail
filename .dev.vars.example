@@ -1,0 +1,18 @@
+# 로컬 wrangler dev 전용 시크릿. 이 파일을 .dev.vars 로 복사한 뒤 값을 채운다.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# .dev.vars 는 .gitignore 에 걸려 있다. 절대 커밋하지 않는다.
+
+# Firebase 서비스 계정 JSON 전체를 한 줄로 넣는다 (줄바꿈은 \n 으로).
+# 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성
+GCP_SERVICE_ACCOUNT='{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n","client_email":"..."}'
+
+# 세션 쿠키 서명용. openssl rand -hex 32 로 뽑는다.
+SESSION_SECRET=""
+
+# 최초 계정 생성용. README 의 curl 예시가 이 값을 쓴다.
+SETUP_TOKEN="dev-setup-token"
+
+# 운영 데이터와 컬렉션을 분리한다 (dev_users, dev_messages ...)
+COLLECTION_PREFIX="dev_"

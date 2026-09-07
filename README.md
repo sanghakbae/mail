@@ -146,9 +146,15 @@ _dmarc.sanghak.kr  TXT  "v=DMARC1; p=none; rua=mailto:dmarc@sanghak.kr"
 
 ```bash
 npm install
+cp .dev.vars.example .dev.vars   # 값을 채운다 (아래 참고)
 npm run dev      # API  → http://localhost:8787
 npm run dev:ui   # UI   → http://localhost:8080
 ```
+
+`.dev.vars` 가 없거나 `GCP_SERVICE_ACCOUNT` 가 비어 있으면 로그인 화면에
+`GCP_SERVICE_ACCOUNT 시크릿이 설정되지 않았다` 가 뜬다. 로컬 API 가 Firestore 에
+붙지 못한다는 뜻이고, 배포된 사이트와는 무관하다. 채워야 할 값은
+`.dev.vars.example` 에 적어두었다.
 
 `config.js` 가 접속 호스트를 보고 API 주소를 고른다 — localhost 면 `http://localhost:8787`,
 그 외에는 배포된 Worker. 따로 열어야 하는 개발용 HTML 은 없다.

@@ -33,8 +33,12 @@ jobs:
           rsync -a site/ _dist/
           # 배포마다 ?v=dev 를 커밋 해시로 바꿔 브라우저 캐시를 무효화한다.
           # (이게 없으면 사용자가 예전 app.js/style.css 를 계속 쓴다)
-          sed -i "s|?v=dev|?v=${GITHUB_SHA::8}|g" _dist/index.html
-          grep -o '?v=[0-9a-z]*' _dist/index.html | sort -u
+          #
+          # sw.js 도 같이 바꿔야 한다. 서비스워커의 APP_SHELL 이 ?v=dev 로 남으면
+          # 페이지가 요청하는 ?v=<sha> 와 캐시 키가 달라, 미리 캐시해 둔 파일이
+          # 한 번도 쓰이지 않는다 (설치 직후 오프라인 진입이 깨진다).
+          sed -i "s|?v=dev|?v=${GITHUB_SHA::8}|g" _dist/index.html _dist/sw.js
+          grep -o '?v=[0-9a-z]*' _dist/index.html _dist/sw.js | sort -u
           # 커스텀 도메인
           echo "mail.sanghak.kr" > _dist/CNAME
           # SPA 라우팅은 쓰지 않지만, 404 는 진입점으로 되돌린다
